@@ -50,6 +50,18 @@ python3 -m http.server 8766   # i otwórz http://127.0.0.1:8766/
 Kamera wymaga HTTPS albo `localhost`. Biblioteki (MediaPipe Tasks Vision 0.10.21, jsPDF 2.5.2) ładują się z CDN,
 z lokalnym zapasem w `assets/`.
 
+## Trener głosowy (w tle)
+
+Podczas ćwiczenia aplikacja mówi po polsku (Web Speech API, głos pl-PL): wprowadzenie do ćwiczenia, odliczanie 3-2-1 przed pomiarem
+z kamery, liczenie powtórzeń na głos („1… 2… ostatnie powtórzenie”), utrzymanie („trzymaj… 3, 2, 1, rozluźnij”), podpowiedzi tempa
+(„teraz w dół / w górę”), zakończenie serii i odliczanie przerwy (pole *Przerwa między seriami*), zachęty, ostrzeżenia
+(spadek zakresu ruchu, utrata śledzenia – „popraw punkty”), podsumowanie sesji z zakresem względem poprzedniej oraz spokojne
+przypomnienia: przy bólu przerwij, cele ustala fizjoterapeuta. To wsparcie motywacyjne, nie porada medyczna.
+Ustawienia (🎙): włącz/wyłącz, głośność, tempo, wybór głosu, szczegółowość *minimalna / normalna / gadatliwa*, „Test głosu”;
+🔊 wycisza (na podglądzie i w dolnym pasku). Zapis w `localStorage` (`bikerc.coach.v1`). Moduł `assets/coach.js`
+jest wspólny z aplikacją „BikeRc Motion”. Na iOS pierwsze dotknięcie ekranu odblokowuje dźwięk.
+Test: `python3 tests/test_coach.py` (speechSynthesis podmieniony na szpiega).
+
 ## Testy
 
 `tests/test_app.py` (Playwright + Chrome; filmy testowe nie są w repozytorium), `tests/smoke.py`, `tests/run_cu.py` (zbliżenie).

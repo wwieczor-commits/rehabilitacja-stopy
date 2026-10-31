@@ -88,7 +88,7 @@ function loadSettings() {
   S.ex = EX[o.ex] ? o.ex : 'pump'; S.injured = o.injured === 'L' ? 'L' : 'R'; S.client = o.client || '';
   S.trackMode = o.trackMode === 'closeup' ? 'closeup' : 'pose';
   S.modelName = o.model === 'heavy' ? 'heavy' : 'full'; S.side = ['L', 'R', 'auto'].includes(o.side) ? o.side : 'auto';
-  for (const k in EX) S.cfg[k] = { thr: EX[k].thr, tgt: EX[k].tgt, sets: 3, reps: 15, hold: 0, ...(o.cfg && o.cfg[k] || {}) };
+  for (const k in EX) S.cfg[k] = { thr: EX[k].thr, tgt: EX[k].tgt, sets: 3, reps: 15, hold: 0, rest: 20, ...(o.cfg && o.cfg[k] || {}) };
 }
 function saveSettings() { try { localStorage.setItem(LS.set, JSON.stringify({ ex: S.ex, injured: S.injured, client: S.client, trackMode: S.trackMode, model: S.modelName, side: S.side, cfg: S.cfg })) } catch (e) { } }
 loadSettings();
@@ -239,10 +239,10 @@ async function beginTracking() {
   $('btn-cam').textContent = S.source === 'file' ? 'Zatrzymaj film' : 'Zatrzymaj kamerę'; $('btn-cam').classList.remove('primary'); $('btn-cam').classList.add('danger');
   $('btn-snap').disabled = false; $('btn-rec').disabled = false; $('hudbig').hidden = false;
   if (S.trackMode === 'closeup') cuStartPicking(true);
-  cancelAnimationFrame(S.raf); S.raf = requestAnimationFrame(loop); requestWake(); syncDock(); syncModeUI();
+  cancelAnimationFrame(S.raf); S.raf = requestAnimationFrame(loop); requestWake(); syncDock(); syncModeUI(); coachTracking();
 }
 function stopAll(silent) {
-  if (S.rec) stopRecording();
+  if (S.rec) stopRecording(); coachStopAll();
   S.running = false; cancelAnimationFrame(S.raf); fileTok++;
   S.stream?.getTracks().forEach(t => t.stop()); S.stream = null;
   if (S.fileUrl) { URL.revokeObjectURL(S.fileUrl); S.fileUrl = null }
@@ -304,23 +304,25 @@ function applyCal(vals) {   // przesunięcie o kalibrację + baza pięty
 
 /* ---------- powtórzenia, utrzymanie, cel sesji ---------- */
 function resetReps() {
-  const c = cfg(); S.reps = { total: 0, setReps: 0, sets: 0, done: false, zz: new ZigZag(c.thr), state: 'low', holdStart: null, holdCur: 0, best: 0, holdFired: false, tPrev: null };
-  updateGoalUI();
+  const c = cfg(); S.reps = { total: 0, setReps: 0, sets: 0, done: false, zz: new ZigZag(c.thr), state: 'low', holdStart: null, holdCur: 0, best: 0, holdFired: false, tPrev: null, cs: { peaks: [], curMax: -Infinity, lastT: null, fast: 0, hold: {}, n: 0 } };
+  coachRestCancel(); updateGoalUI();
 }
 function metricVal(vals) { return vals[EX[S.ex].metric] }
 function updateReps(t, vals) {
   const R = S.reps, c = cfg(), ex = EX[S.ex]; const v = metricVal(vals);
   if (v == null) { if (R.holdStart != null) endHold(t); return }
-  let rep = false;
-  if (ex.mode === 'zigzag') { R.zz.swing = c.thr; rep = R.zz.push(t, v) === 'peak' && R.zz.seenValley && R.zz.reps > R.total }
-  else { const up = c.thr, down = c.thr * .6; if (R.state === 'low' && v >= up) R.state = 'high'; else if (R.state === 'high' && v <= down) { R.state = 'low'; rep = true } }
+  let rep = false; if (R.cs.curMax < v) R.cs.curMax = v;
+  if (ex.mode === 'zigzag') { R.zz.swing = c.thr; const zr = R.zz.push(t, v); if (zr) coachTempo(zr); rep = zr === 'peak' && R.zz.seenValley && R.zz.reps > R.total }
+  else { const up = c.thr, down = c.thr * .6; if (R.state === 'low' && v >= up) { R.state = 'high'; coachTempo('peak') } else if (R.state === 'high' && v <= down) { R.state = 'low'; rep = true } }
   if (rep) {
     R.total = ex.mode === 'zigzag' ? R.zz.reps : R.total + 1; if (ex.mode !== 'zigzag') R.setReps++; else R.setReps = R.total - R.sets * c.reps;
+    const nInSet = R.setReps;
     if (R.setReps >= c.reps) { R.sets++; R.setReps = 0; toast(R.sets >= c.sets ? 'Cel sesji osiągnięty – dobra robota! 🎉' : `Seria ${R.sets} z ${c.sets} ukończona – odpocznij.`, false, 5000); try { navigator.vibrate?.(R.sets >= c.sets ? [120, 60, 120] : 80) } catch (e) { } }
+    coachRep(nInSet, t, nInSet >= c.reps);
     updateGoalUI();
   }
   // utrzymanie: czas nieprzerwanie powyżej celu
-  if (v >= c.tgt) { if (R.holdStart == null) { R.holdStart = t; R.holdFired = false } R.holdCur = t - R.holdStart; if (c.hold > 0 && R.holdCur >= c.hold && !R.holdFired) { R.holdFired = true; try { navigator.vibrate?.(60) } catch (e) { } } }
+  if (v >= c.tgt) { if (R.holdStart == null) { R.holdStart = t; R.holdFired = false; coachHold(0) } R.holdCur = t - R.holdStart; if (c.hold > 0) coachHold(R.holdCur); if (c.hold > 0 && R.holdCur >= c.hold && !R.holdFired) { R.holdFired = true; coachHold(Infinity); try { navigator.vibrate?.(60) } catch (e) { } } }
   else if (R.holdStart != null) endHold(t);
 }
 function endHold(t) { const R = S.reps; R.best = Math.max(R.best, t - R.holdStart); R.holdStart = null; R.holdCur = 0 }
@@ -359,7 +361,7 @@ function cuTap(nx, ny, grab) {
     cu.pts.push({ x: nx, y: ny }); cu.tr.push(TRK.init(g.g, g.W, g.H, nx * g.W, ny * g.H));
     if (cu.pts.length === 3) {
       cu.state = 'track'; cu.pick = { t: video.currentTime || 0, pts: cu.tr.map(t => ({ x: t.x / g.W, y: t.y / g.H })), tr: cu.tr.map(cloneTr) };
-      $('stage').classList.remove('cu-pick'); S.lastVT = video.currentTime || 0; cu.vals = null;
+      $('stage').classList.remove('cu-pick'); S.lastVT = video.currentTime || 0; cu.vals = null; COACH.st = 'ok'; Coach.say('Punkty ustawione. Śledzę stopę.', { p: 1, v: 'normal', key: 'pts', ttl: 4000 });
       if (S.source === 'camera') { video.play().catch(() => { }) }
       toast(S.source === 'file' ? 'Punkty ustawione. Naciśnij ▶ lub „Rozpocznij pomiar”.' : 'Punkty ustawione – śledzę.', false, 3500);
     }
@@ -597,18 +599,19 @@ function setExercise(id) {
   if (!EX[id]) return; if (S.rec) { toast('Zakończ pomiar przed zmianą ćwiczenia.'); return }
   if (S.trackMode === 'closeup' && id !== 'pump') { toast('To ćwiczenie wymaga trybu „Cała noga” (kolano w kadrze).'); return }
   S.ex = id; saveSettings(); S.sel = EX[id].metric; S.series = []; resetStats(); resetReps(); renderExerciseUI(); buildCards(); updatePanels();
+  if (S.running) Coach.say(`Ćwiczenie: ${EX[id].pl}.` + (Coach.level === 'chatty' ? ' ' + EX[id].steps[0] : ''), { p: 1, v: 'normal', key: 'ex', ttl: 6000 });
 }
 function renderExerciseUI() {
   const ex = EX[S.ex], c = cfg();
   $('exlist').innerHTML = Object.values(EX).map(e => `<button class="exb" data-e="${e.id}" aria-pressed="${e.id === S.ex}"${S.trackMode === 'closeup' && e.id !== 'pump' ? ' disabled' : ''}><i>${e.ico}</i>${e.pl}</button>`).join('');
   $('ex-svg').innerHTML = EX_SVG[S.ex]; $('ex-steps').innerHTML = ex.steps.map(s => `<li>${s}</li>`).join('');
   $('lab-thr').textContent = ex.thrLab; $('lab-tgt').textContent = ex.tgtLab;
-  $('in-thr').value = c.thr; $('in-tgt').value = c.tgt; $('in-sets').value = c.sets; $('in-reps').value = c.reps; $('in-hold').value = c.hold;
+  $('in-thr').value = c.thr; $('in-tgt').value = c.tgt; $('in-sets').value = c.sets; $('in-reps').value = c.reps; $('in-hold').value = c.hold; $('in-rest').value = c.rest ?? 20;
   $('hf-ex').value = S.ex; $('cmp-ex').value = S.ex;
 }
 function bindExerciseInputs() {
-  const m = { 'in-thr': 'thr', 'in-tgt': 'tgt', 'in-sets': 'sets', 'in-reps': 'reps', 'in-hold': 'hold' };
-  for (const id in m) $(id).addEventListener('change', () => { const v = parseFloat($(id).value); const c = cfg(); if (isFinite(v) && v >= 0) c[m[id]] = (m[id] === 'sets' || m[id] === 'reps') ? Math.max(1, Math.round(v)) : v; $(id).value = c[m[id]]; saveSettings(); if (S.reps) { S.reps.zz.swing = c.thr; updateGoalUI() } });
+  const m = { 'in-thr': 'thr', 'in-tgt': 'tgt', 'in-sets': 'sets', 'in-reps': 'reps', 'in-hold': 'hold', 'in-rest': 'rest' };
+  for (const id in m) $(id).addEventListener('change', () => { const v = parseFloat($(id).value); const c = cfg(); if (isFinite(v) && v >= 0) c[m[id]] = (m[id] === 'sets' || m[id] === 'reps') ? Math.max(1, Math.round(v)) : m[id] === 'rest' ? Math.min(300, Math.round(v)) : v; $(id).value = c[m[id]]; saveSettings(); if (S.reps) { S.reps.zz.swing = c.thr; updateGoalUI() } });
 }
 bindExerciseInputs();
 
@@ -637,7 +640,7 @@ function startRecording() {
   S.rec = { source: S.source, fileName: S.fileName, t0: S.source === 'file' ? start : clk(), startedAt: new Date(), frames: [], stats: {}, mode: S.trackMode, ex: S.ex, caps: {}, sideN: { L: 0, R: 0 } };
   $('btn-rec').textContent = '⏹ Zakończ pomiar'; $('btn-rec').classList.remove('primary'); $('btn-rec').classList.add('danger'); $('b-rec').hidden = false; $('timer').classList.add('on'); $('btn-pdf').disabled = true;
   recTick = setInterval(() => { if (!S.rec) return; const d = clk() - S.rec.t0; $('timer').textContent = mmss(d); $('b-rec').textContent = 'REC ' + mmss(d); syncDock() }, 200);
-  syncDock(); toast('Pomiar rozpoczęty – statystyki zostały zresetowane.');
+  syncDock(); toast('Pomiar rozpoczęty – statystyki zostały zresetowane.'); coachRecStart();
 }
 function recFrame(vals, t) {
   const r = S.rec; r.frames.push({ t: +(clk() - r.t0).toFixed(3), a: vals.ankle, k: vals.knee, ti: vals.tibia, h: vals.heel }); addStatsTo(r.stats, vals); r.sideN[curSide()]++;
@@ -657,10 +660,11 @@ function stopRecording() {
   r.calAnkle = S.cal.ankle;
   $('btn-csv').disabled = r.frames.length === 0;
   const sess = r.frames.length >= 8 && statOf('ankle', r.stats) ? buildSession(r) : null;
+  const prevSess = sess ? S.hist.filter(h => h.ex === sess.ex && h.side === sess.side && h.m && h.m.key === sess.m.key && h.ts < sess.ts).pop() : null;
   if (sess && $('chk-save').checked) { addSession(sess); toast(`Zapisano w historii: zakres ${sess.m.range.toFixed(0)}°, powtórzeń: ${sess.reps}.`, false, 6000) }
   else if (!sess) toast('Za mało danych w tym pomiarze (nie wykryto stopy) – nic nie zapisano.', true, 7000);
   else toast('Pomiar zakończony (nie zapisano w historii).');
-  S.lastSession = sess; syncDock(); refreshHistoryUI();
+  S.lastSession = sess; syncDock(); refreshHistoryUI(); coachRecEnd(r, sess, prevSess);
 }
 function endHoldIfAny() { const R = S.reps; if (R && R.holdStart != null) endHold(clk() - S.t0) }
 function buildSession(r) {
@@ -909,7 +913,7 @@ async function makeReport() {
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setDrawColor(C.line); doc.setLineWidth(.2); doc.line(M, PH - 17, PW - M, PH - 17); font('Inter', 'normal', 6.8, C.grey); txt('Wartości orientacyjne, generowane automatycznie – nie stanowią diagnozy medycznej. Skonsultuj ćwiczenia z fizjoterapeutą.', M, PH - 12.5); font('Inter', 'bold', 8, C.tealD); txt('© Wojciech Wieczorek', M, PH - 7); const cw = doc.getTextWidth('© Wojciech Wieczorek'); font('Inter', 'normal', 8, C.grey); txt('· Rehabilitacja stopy – prototyp', M + cw + 2.2, PH - 7); txt(`Strona ${i} z ${n}`, PW - M, PH - 7, { align: 'right' }) }
     doc.setProperties({ title: 'Raport rehabilitacji stopy' + (S.client ? ' – ' + S.client : ''), author: 'Wojciech Wieczorek', subject: 'Zakres ruchu stawu skokowego', creator: 'Rehabilitacja stopy – Wojciech Wieczorek' });
-    S.lastPdfBlob = doc.output('blob'); deliver(S.lastPdfBlob, `rehabilitacja-stopy-raport-${stampStr(new Date())}.pdf`, 'application/pdf'); toast(IS_MOBILE ? 'Raport PDF gotowy.' : 'Raport PDF zapisany.');
+    S.lastPdfBlob = doc.output('blob'); deliver(S.lastPdfBlob, `rehabilitacja-stopy-raport-${stampStr(new Date())}.pdf`, 'application/pdf'); toast(IS_MOBILE ? 'Raport PDF gotowy.' : 'Raport PDF zapisany.'); Coach.say('Raport PDF gotowy.', { p: 2, v: 'minimal', key: 'pdf', ttl: 8000 });
   } catch (e) { console.error(e); toast('Nie udało się wygenerować raportu PDF: ' + (e && e.message || e), true, 9000) }
   btn.disabled = false; btn.textContent = old;
 }
@@ -938,9 +942,9 @@ const dkSet = (el, ico, txt) => { el.querySelector('i').textContent = ico; el.qu
 function syncDock() {
   const rec = !!S.rec, run = S.running, file = S.source === 'file';
   const dc = $('d-cam'); dkSet(dc, run ? '⏻' : '📷', run ? 'Stop' : 'Kamera'); dc.classList.toggle('danger', run);
-  const dr = $('d-rec'); dr.disabled = $('btn-rec').disabled; dkSet(dr, rec ? '⏹' : '●', rec ? 'Koniec ' + $('timer').textContent : 'Pomiar'); dr.classList.toggle('danger', rec); dr.classList.toggle('primary', !rec);
+  const dr = $('d-rec'); dr.disabled = $('btn-rec').disabled; const cdn = !!COACH.pend; dkSet(dr, rec ? '⏹' : cdn ? '✕' : '●', rec ? 'Koniec ' + $('timer').textContent : cdn ? 'Anuluj' : 'Pomiar'); dr.classList.toggle('danger', rec || cdn); dr.classList.toggle('primary', !rec && !cdn);
   $('d-fs').disabled = !run; $('s-flip').hidden = !(run && !file); $('s-fs').hidden = !run; $('bar-facing').hidden = run && file;
-  const sr = $('s-rec'); sr.hidden = !(run && isFs()); sr.textContent = rec ? '⏹ Zakończ · ' + $('timer').textContent : '● Start pomiaru'; sr.classList.toggle('danger', rec);
+  const sr = $('s-rec'); sr.hidden = !(run && isFs()); sr.textContent = rec ? '⏹ Zakończ · ' + $('timer').textContent : COACH.pend ? '✕ Anuluj odliczanie' : '● Start pomiaru'; sr.classList.toggle('danger', rec);
   syncVctl();
 }
 const pickFile = () => { if (S.rec) { toast('Zakończ pomiar przed wczytaniem innego filmu.'); return } $('file-video').click() };
@@ -966,7 +970,137 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadCtl) return; if (S.running || S.rec) toast('Dostępna nowa wersja aplikacji – odśwież stronę po zakończeniu pomiaru.', false, 8000); else location.reload() });
   });
 $('btn-cam').onclick = toggleCam; $('btn-empty-start').onclick = startCamera;
-$('btn-rec').onclick = () => S.rec ? stopRecording() : startRecording();
+/* ---------- trener głosowy w tle (assets/coach.js) ---------- */
+const COACH = { st: 'off', n: 0, seenAt: 0, startedAt: 0, lostN: 0, lostAt: 0, searchN: 0, searchAt: 0, pend: null, restTimer: 0 };
+const f0 = x => Math.round(x);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+Coach.bindMute($('s-voice')); Coach.bindMute($('d-voice')); Coach.bindSettings($('s-voicecfg')); Coach.bindSettings($('btn-voice-cfg'));
+const unitTxt = (m, v) => m.unit === '%' ? `${f0(v)} procent` : Coach.pl.deg(v);
+function coachRecBtn(txt, primary) { const b = $('btn-rec'); b.textContent = txt; b.classList.toggle('primary', primary); b.classList.toggle('danger', !primary) }
+function coachCancelStart() {
+  const p = COACH.pend; if (!p) return; p.dead = true; if (p.cd) p.cd.cancel(); COACH.pend = null; Coach.stop();
+  coachRecBtn('▶ Rozpocznij pomiar', true); syncDock();
+}
+function coachStartMeasure() {
+  if (!S.running || COACH.pend || S.rec) return;
+  if (S.source !== 'camera' || (S.trackMode === 'closeup' && (!S.cu || S.cu.state === 'pick' || S.cu.pts.length < 3))) { startRecording(); return }
+  // kamera na żywo: krótkie wprowadzenie głosowe, potem odliczanie 3-2-1 (czas na ułożenie nogi)
+  const ex = EX[S.ex], c = cfg(), me = COACH.pend = { dead: false, cd: null };
+  coachRecBtn('✕ Anuluj odliczanie', false); syncDock();
+  const intro = `Ćwiczenie: ${ex.pl}. Cel: ${Coach.pl.sets(c.sets)} po ${Coach.pl.reps(c.reps)}.` + (c.hold > 0 ? ` Utrzymaj ${Coach.pl.secAcc(c.hold)}.` : '') + ' Przy bólu przerwij.';
+  Coach.stop();
+  Promise.race([Coach.sayThen(intro, { p: 3, v: 'normal', ttl: 30000, key: 'intro' }), new Promise(r => setTimeout(r, 10000))]).then(() => {
+    if (me.dead || COACH.pend !== me) return;
+    me.cd = Coach.countdown({ from: 3, parent: $('stage'), go: 'Start', onDone: () => { COACH.pend = null; if (S.running && !S.rec) startRecording(); else { coachRecBtn('▶ Rozpocznij pomiar', true); syncDock() } } });
+  });
+}
+function coachTracking() {
+  Coach.resetCooldowns(); COACH.st = S.trackMode === 'pose' ? 'search' : 'ok'; COACH.n = S.nPose; COACH.seenAt = 0; COACH.startedAt = performance.now(); COACH.lostN = 0; COACH.searchN = 0; COACH.searchAt = 0;
+  Coach.say(S.source === 'file' ? 'Film wczytany.' : S.trackMode === 'pose' ? 'Kamera uruchomiona. Ustaw ją z boku, tak aby widać było całą nogę ze stopą.' : 'Kamera uruchomiona. Wskaż trzy punkty na obrazie.', { p: 1, v: 'normal', key: 'start', ttl: 5000 });
+}
+function coachStopAll() { coachCancelStart(); coachRestCancel(); COACH.st = 'off' }
+function coachRecStart() {
+  Coach.resetCooldowns(); coachRestCancel();
+  if (S.source === 'file') Coach.say(`Pomiar rozpoczęty. ${EX[S.ex].pl}.`, { p: 2, v: 'normal', key: 'recstart', ttl: 3000 });
+}
+/* ostrzeżenia o utracie śledzenia (co 250 ms) */
+function coachTick(now) {
+  if (!S.running || document.hidden) return; if (S.source === 'file' && (video.paused || S.userPaused)) return;
+  const cu = S.trackMode === 'closeup'; let present;
+  if (cu) { if (!S.cu || S.cu.state === 'pick') return; present = !(S.cu.lost >= 8) && S.cu.state !== 'stale'; if (S.cu.state === 'stale') return }
+  else { if (S.nPose !== COACH.n) { COACH.n = S.nPose; COACH.seenAt = now } present = COACH.seenAt > 0 && now - COACH.seenAt < 1800 }
+  const lostMsg = cu ? 'Straciłem punkt. Popraw punkty na obrazie.' : 'Nie widzę stopy. Popraw ustawienie kamery.';
+  if (COACH.st === 'search') {
+    if (present) { COACH.st = 'ok'; Coach.say('Widzę stopę. Możesz zaczynać pomiar.', { p: 1, v: 'normal', key: 'seen', ttl: 4000 }) }
+    else if (now - COACH.startedAt > 6000 && COACH.searchN < 2 && (!COACH.searchAt || now - COACH.searchAt > 14000)) { COACH.searchN++; COACH.searchAt = now; Coach.say('Nie widzę stopy. Ustaw kamerę z boku, na wysokości kostki.', { p: 2, v: 'minimal', key: 'lost', ttl: 5000 }) }
+  } else if (COACH.st === 'ok') {
+    if (!present) { COACH.st = 'lost'; COACH.lostAt = now; COACH.lostN = 1; Coach.say(lostMsg, { p: 2, v: 'minimal', key: 'lost', ttl: 5000 }) }
+  } else if (COACH.st === 'lost') {
+    if (present) { COACH.st = 'ok'; Coach.say(cu ? 'Punkty znowu działają.' : 'Znów widzę stopę.', { p: 1, v: 'normal', key: 'seen', ttl: 4000 }) }
+    else if (COACH.lostN < 3 && now - COACH.lostAt > 15000 * COACH.lostN) { COACH.lostN++; Coach.say(lostMsg, { p: 2, v: 'minimal', key: 'lost', ttl: 5000 }) }
+  }
+}
+setInterval(() => coachTick(performance.now()), 250);
+/* tempo: „w górę / w dół” (tylko tryb rozmowny, tylko gdy nic nie mówi) */
+function coachTempo(ev) {
+  if (!S.rec) return; const dir = ev === 'peak' ? 'Teraz powoli w dół.' : 'Teraz w górę.';
+  Coach.say(dir, { p: 0, v: 'chatty', key: 'tempo', cd: 2500, ttl: 900 });
+}
+/* trzymanie: „trzymaj… 3, 2, 1, rozluźnij” */
+function coachHold(cur) {
+  if (!S.rec || !S.reps) return; const c = cfg(), H = S.reps.cs.hold;
+  if (c.hold <= 0) return;
+  if (cur === 0) { S.reps.cs.hold = {}; Coach.say('Trzymaj.', { p: 2, v: 'normal', key: 'hold', ttl: 1500 }); return }
+  if (cur === Infinity) { Coach.say('Rozluźnij.', { p: 2, v: 'normal', key: 'relax', ttl: 2000 }); return }
+  const n = Math.ceil(c.hold - cur);
+  if (c.hold > 3 && n >= 1 && n <= 3 && !H[n]) { H[n] = 1; Coach.say(String(n), { p: 2, v: 'normal', key: 'h' + n, ttl: 1100 }) }
+}
+/* licznik powtórzeń, koniec serii, spadek zakresu, tempo */
+function coachRep(n, t, setDone) {
+  if (!S.rec) return; const R = S.reps, c = cfg(), cs = R.cs, ex = EX[S.ex];
+  if (R.setReps > 0 || !setDone) coachRestCancel(true);
+  const peak = cs.curMax; cs.curMax = -Infinity; if (isFinite(peak)) cs.peaks.push(peak);
+  if (cs.lastT != null) { cs.fast = (t - cs.lastT) < 1.1 ? cs.fast + 1 : 0 } cs.lastT = t;
+  if (setDone) {
+    cs.peaks = []; cs.fast = 0; cs.lastT = null;
+    if (R.sets >= c.sets) { Coach.say('Cel sesji osiągnięty. Dobra robota!', { p: 3, v: 'minimal', key: 'goal', ttl: 8000 }); return }
+    const useRest = S.source === 'camera' && c.rest > 0;
+    Coach.say(`Seria ${R.sets} z ${c.sets} ukończona.` + (useRest ? ` Odpocznij ${Coach.pl.secAcc(c.rest)}.` : ' Odpocznij.'), { p: 3, v: 'minimal', key: 'setdone', ttl: 8000 });
+    if (Coach.level === 'chatty') Coach.say('Jeśli coś boli, nie forsuj.', { p: 1, v: 'chatty', key: 'pain', ttl: 8000 });
+    if (useRest) coachRestStart(c.rest);
+    return;
+  }
+  let txt = String(n);
+  if (c.reps - n === 1 && c.reps > 2) txt += '. Ostatnie powtórzenie.';
+  else if (c.reps >= 6 && n === Math.floor(c.reps / 2)) txt += '. Połowa serii.';
+  else if (Coach.level === 'chatty' && n % 5 === 0) txt += '. ' + pick(['Dobrze ci idzie.', 'Tak trzymaj.', 'Równo i spokojnie.', 'Świetnie.']);
+  Coach.say(txt, { p: 1, v: 'normal', key: 'rep', ttl: 2500 });
+  if (cs.fast >= 3) Coach.say('Zwolnij, ruch powinien być spokojny.', { p: 1, v: 'normal', key: 'pace', cd: 25000, ttl: 3000 });
+  if (cs.peaks.length >= 5) {
+    const base = (cs.peaks[0] + cs.peaks[1] + cs.peaks[2]) / 3, last = cs.peaks[cs.peaks.length - 1];
+    if (base - last > Math.max(0.15 * Math.abs(base), c.thr * 0.25)) Coach.say('Zakres ruchu spada. Spróbuj ruszać się pełniej, ale tylko w granicach komfortu.', { p: 2, v: 'normal', key: 'range', cd: 25000, ttl: 4000 });
+  }
+}
+/* przerwa między seriami: odliczanie (tylko kamera na żywo) */
+function coachRestStart(sec) {
+  coachRestCancel(); const end = performance.now() + sec * 1000, said = {}; let lastLeft = -1;
+  COACH.restTimer = setInterval(() => {
+    if (!S.rec || !S.reps) { coachRestCancel(); return }
+    const left = Math.max(0, Math.ceil((end - performance.now()) / 1000));
+    if (left !== lastLeft) {
+      lastLeft = left; $('g-sub').textContent = left > 0 ? `przerwa: ${left} s · następna seria ${Math.min(S.reps.sets + 1, cfg().sets)} z ${cfg().sets}` : '';
+      const sayOnce = (k, txt, o) => { if (!said[k]) { said[k] = 1; Coach.say(txt, o) } };
+      if (left === 10 && sec > 14) sayOnce('10', 'Dziesięć sekund do końca przerwy.', { p: 1, v: 'normal', key: 'r10', ttl: 3000 });
+      if (left === Math.floor(sec / 2) && sec >= 20 && Coach.level === 'chatty') sayOnce('mid', 'Oddychaj spokojnie.', { p: 0, v: 'chatty', key: 'rmid', ttl: 3000 });
+      if (left === 5 && sec > 8) sayOnce('5', 'Pięć sekund.', { p: 1, v: 'normal', key: 'r5', ttl: 2000 });
+      if (left >= 1 && left <= 3 && sec > 5) sayOnce('c' + left, String(left), { p: 2, v: 'normal', key: 'rc' + left, ttl: 1100 });
+      if (left === 0) { sayOnce('go', `Zaczynamy serię ${Math.min(S.reps.sets + 1, cfg().sets)}.`, { p: 2, v: 'minimal', key: 'rgo', ttl: 4000 }); coachRestCancel(true) }
+    }
+  }, 200);
+}
+function coachRestCancel(silent) {
+  if (!COACH.restTimer) return; clearInterval(COACH.restTimer); COACH.restTimer = 0;
+  if (S.reps && S.running) updateGoalUI();
+}
+/* podsumowanie sesji + postęp względem poprzedniej */
+function coachRecEnd(r, sess, prev) {
+  coachRestCancel();
+  if (!sess) { Coach.say('Koniec pomiaru. Za mało danych, nie wykryłem stopy.', { p: 3, v: 'minimal', key: 'recend', ttl: 8000 }); return }
+  const m = sess.m, parts = ['Koniec pomiaru.'];
+  parts.push(`Wykonano ${Coach.pl.reps(sess.reps)}.` + (sess.setsGoal > 0 ? ` Ukończone serie: ${sess.sets} z ${sess.setsGoal}.` : ''));
+  parts.push(`Zakres ruchu: ${unitTxt(m, m.range)}.`);
+  if (sess.bestHold >= 1 && cfg().hold > 0) parts.push(`Najdłuższe utrzymanie: ${Coach.pl.sec(sess.bestHold)}.`);
+  if (prev) {
+    const d = m.range - prev.m.range;
+    if (Math.abs(d) < 1) parts.push('Zakres taki sam jak ostatnio.');
+    else if (d > 0) parts.push(`Zakres większy niż poprzednio o ${unitTxt(m, d)}. Świetna robota!`);
+    else parts.push(`Zakres mniejszy niż poprzednio o ${unitTxt(m, -d)}. To się zdarza, nie forsuj.`);
+  } else parts.push('To pierwszy pomiar tego ćwiczenia, będzie punkt odniesienia na przyszłość.');
+  Coach.say(parts.join(' '), { p: 3, v: 'minimal', key: 'recend', ttl: 25000 });
+  Coach.say('Pamiętaj: przy bólu przerwij ćwiczenia. Cele ustala fizjoterapeuta.', { p: 1, v: 'normal', key: 'safety', ttl: 25000 });
+}
+
+$('btn-rec').onclick = () => S.rec ? stopRecording() : COACH.pend ? coachCancelStart() : coachStartMeasure();
 async function snapshot() {
   if (!S.running) return; render(); canvas.toBlob(b => { if (b) deliver(b, `rehabilitacja-stopy-klatka-${stampStr(new Date())}.png`, 'image/png') }, 'image/png');
 }
@@ -1029,4 +1163,4 @@ fillExSelects(); renderExerciseUI(); buildCards(); syncSideUI(); syncModeUI(); s
 document.querySelectorAll('#seg-mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.trackMode)); $('stage').style.touchAction = S.trackMode === 'closeup' ? 'none' : '';
 $('chk-front').checked = S.front; S.sel = EX[S.ex].metric; buildCards(); refreshHistoryUI(); updatePanels(); syncDock();
 if (qs.get('mode') === 'closeup' && S.trackMode !== 'closeup') setTrackMode('closeup', true);
-window.__rehab = S; window.__rehabApi = { setTrackMode, cuStartPicking, cuRestore, startRecording, stopRecording, makeReport, buildSession, compareSummary, setExercise, calibrate };
+window.__rehab = S; window.__rehabApi = { updateReps, resetReps, setTrackMode, cuStartPicking, cuRestore, startRecording, stopRecording, makeReport, buildSession, compareSummary, setExercise, calibrate };

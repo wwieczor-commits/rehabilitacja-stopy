@@ -1,10 +1,10 @@
 /* Rehabilitacja stopy – service worker (© Wojciech Wieczorek): powłoka aplikacji offline + cache bibliotek i modelu */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `rehab-shell-${VERSION}`;
 const LIBS = 'rehab-libs-v1';
 const SHELL_FILES = [
   './', './index.html', './style.css', './app.js', './tracker.js', './manifest.webmanifest',
-  './assets/fonts.css', './assets/logo-bikerc.svg',
+  './assets/fonts.css', './assets/logo-bikerc.svg', './assets/coach.js',
   './assets/vendor/jspdf.umd.min.js', './assets/vendor/report-fonts.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/icon-maskable-512.png', './assets/icons/apple-touch-icon.png'
 ];
@@ -50,7 +50,7 @@ self.addEventListener('fetch', e => {
   if (url.origin !== self.location.origin) return;
   // index.html / nawigacja: NETWORK-FIRST (nowa wersja trafia do użytkownika od razu),
   // przy braku sieci lub bardzo wolnym łączu (>4 s) – kopia z cache
-  const isDoc = req.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || /\/(sw\.js|manifest\.webmanifest|app\.js|tracker\.js|style\.css)$/.test(url.pathname);
+  const isDoc = req.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || /\/(sw\.js|manifest\.webmanifest|app\.js|tracker\.js|style\.css|assets\/coach\.js)$/.test(url.pathname);
   if (isDoc) {
     e.respondWith((async () => {
       const c = await caches.open(SHELL);

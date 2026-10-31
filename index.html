@@ -34,7 +34,7 @@
       <div class="stage" id="stage">
         <video id="video" playsinline webkit-playsinline muted autoplay></video>
         <canvas id="view" width="1280" height="720"></canvas>
-        <div class="stbtns"><button class="rbtn" id="s-flip" hidden aria-label="Przełącz kamerę przód/tył" title="Przełącz kamerę">🔄</button><button class="rbtn" id="s-fs" hidden aria-label="Pełny ekran" title="Pełny ekran">⛶</button></div>
+        <div class="stbtns"><button class="rbtn" id="s-voicecfg" aria-label="Ustawienia trenera głosowego" title="Ustawienia trenera głosowego">🎙</button><button class="rbtn" id="s-voice" aria-label="Wycisz głos trenera" title="Głos trenera">🔊</button><button class="rbtn" id="s-flip" hidden aria-label="Przełącz kamerę przód/tył" title="Przełącz kamerę">🔄</button><button class="rbtn" id="s-fs" hidden aria-label="Pełny ekran" title="Pełny ekran">⛶</button></div>
         <div class="hudbig" id="hudbig" hidden>
           <div class="ang-big"><b id="h-ang">–</b><small id="h-lab">kostka</small></div>
           <span class="badge" id="h-reps" hidden></span>
@@ -102,6 +102,7 @@
         <button class="btn primary" id="btn-cam">Uruchom kamerę</button>
         <button class="btn" id="btn-film">🎬 Wczytaj film</button>
         <button class="btn" id="btn-snap" disabled>📷 Zrzut PNG</button>
+        <button class="btn" id="btn-voice-cfg">🎙 Trener głosowy</button>
         <span class="sep" style="width:1px;height:28px;margin:0 4px"></span>
         <label class="switch"><input type="checkbox" id="chk-mirror" checked> Lustro</label>
         <label class="switch"><input type="checkbox" id="chk-skel" checked> Szkielet</label>
@@ -172,6 +173,7 @@
         <label class="field"><span>Serie</span><input type="number" id="in-sets" inputmode="numeric" min="1" max="20" step="1"></label>
         <label class="field"><span>Powtórzeń w serii</span><input type="number" id="in-reps" inputmode="numeric" min="1" max="100" step="1"></label>
         <label class="field"><span>Utrzymanie (s)</span><input type="number" id="in-hold" inputmode="decimal" min="0" max="60" step="1"></label>
+        <label class="field"><span>Przerwa między seriami (s)</span><input type="number" id="in-rest" inputmode="numeric" min="0" max="300" step="5"></label>
       </div>
       <div class="sep"></div>
       <div class="cap">Cel sesji</div>
@@ -264,6 +266,7 @@
   <button class="btn dk" id="d-cam"><i>📷</i><span>Kamera</span></button>
   <button class="btn dk" id="d-film" aria-label="Wczytaj film z telefonu"><i>🎬</i><span>Film</span></button>
   <button class="btn primary dk wide" id="d-rec" disabled><i>●</i><span>Pomiar</span></button>
+  <button class="btn dk" id="d-voice" aria-label="Wycisz głos trenera"><i>🔊</i><span>Głos</span></button>
   <button class="btn dk" id="d-fs" aria-label="Pełny ekran" disabled><i>⛶</i><span>Pełny</span></button>
   <input type="file" id="file-video" class="vh" accept="video/*" tabindex="-1" aria-hidden="true">
   <input type="file" id="file-rec" class="vh" accept="video/*" capture="environment" tabindex="-1" aria-hidden="true">
@@ -279,6 +282,7 @@
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<script src="assets/coach.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

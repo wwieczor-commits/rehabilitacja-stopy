@@ -129,7 +129,7 @@ def mobile(p, dev, orient, flow):
         check(f'[{tag}] pełny ekran', page.evaluate("!!(document.fullscreenElement||document.getElementById('stage').classList.contains('fake-fs'))"))
         page.tap('#s-fs'); page.wait_for_timeout(400)
         page.tap('#btn-cal') if page.is_visible('#btn-cal') else page.evaluate("document.getElementById('btn-cal').click()")
-        page.wait_for_timeout(300); page.tap('#d-rec'); page.wait_for_timeout(7000)
+        page.wait_for_timeout(300); page.tap('#d-rec'); page.wait_for_function('!!__rehab.rec', timeout=30000); page.wait_for_timeout(7000)  # kamera: wprowadzenie + odliczanie 3-2-1 trenera
         fr = page.evaluate("__rehab.rec?__rehab.rec.frames.length:0"); check(f'[{tag}] pomiar zbiera próbki', fr > 15, fr)
         page.tap('#d-rec'); page.wait_for_timeout(1200)
         check(f'[{tag}] sesja zapisana w historii', page.evaluate("__rehab.hist.length") == 1)
