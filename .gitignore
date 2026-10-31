@@ -1,0 +1,11 @@
+# prywatne nagrania testowe – nigdy do repozytorium
+*.m4v
+*.mov
+*.mp4
+*.pyc
+*.webm
+*.y4m
+__pycache__/
+node_modules/
+screenshots/private/
+testmedia/

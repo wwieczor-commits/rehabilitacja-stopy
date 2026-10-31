@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rehabilitacja stopy – pomiar zakresu ruchu kostki</title>
+<meta name="description" content="Pomiar zakresu ruchu stopy i kostki z kamery lub filmu w przeglądarce: zgięcie grzbietowe i podeszwowe, powtórzenia, historia postępów i raport PDF.">
+<meta name="author" content="Wojciech Wieczorek">
+<meta name="theme-color" content="#232222">
+<link rel="icon" type="image/svg+xml" href="assets/logo-bikerc.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rehabilitacja stopy">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <img src="assets/logo-bikerc.svg" alt="BikeRc" id="logo">
+  <span class="tag">Rehabilitacja stopy · pomiar zakresu ruchu</span>
+  <span class="sp"></span>
+  <span class="pill" id="pill-model"><i></i><span id="pill-model-t">Model: wczytam przy starcie</span></span>
+  <button class="btn install" id="btn-install" hidden>⬇ Zainstaluj</button>
+</header>
+
+<main>
+  <div class="notice" id="https-warn" hidden></div>
+  <div class="col">
+    <section class="card" aria-label="Podgląd z kamery lub filmu" id="c-video">
+      <div class="stage" id="stage">
+        <video id="video" playsinline webkit-playsinline muted autoplay></video>
+        <canvas id="view" width="1280" height="720"></canvas>
+        <div class="stbtns"><button class="rbtn" id="s-flip" hidden aria-label="Przełącz kamerę przód/tył" title="Przełącz kamerę">🔄</button><button class="rbtn" id="s-fs" hidden aria-label="Pełny ekran" title="Pełny ekran">⛶</button></div>
+        <div class="hudbig" id="hudbig" hidden>
+          <div class="ang-big"><b id="h-ang">–</b><small id="h-lab">kostka</small></div>
+          <span class="badge" id="h-reps" hidden></span>
+          <span class="badge" id="h-hold" hidden></span>
+        </div>
+        <button id="s-rec" hidden>● Start pomiaru</button>
+        <div class="hud" id="hud" style="left:auto;right:12px;top:auto;bottom:84px;flex-direction:column;align-items:flex-end">
+          <span class="badge" id="b-fps" hidden>– FPS</span>
+          <span class="badge" id="b-res" hidden></span>
+          <span class="badge rec" id="b-rec" hidden>REC 00:00</span>
+        </div>
+        <div class="guide" id="guide" hidden></div>
+        <div class="nopose" id="nopose">Nie widzę stopy i goleni – ustaw kamerę z boku, na wysokości kostki</div>
+        <div class="empty" id="empty">
+          <div class="scan"></div>
+          <img src="assets/logo-bikerc.svg" alt="BikeRc">
+          <h1>Rehabilitacja stopy.</h1>
+          <p>Zmierz zakres ruchu kostki: zgięcie grzbietowe i podeszwowe, powtórzenia i postępy. Uruchom kamerę albo wczytaj film nagrany telefonem. Obraz nie opuszcza Twojej przeglądarki.</p>
+          <div class="choices">
+            <button class="btn primary big" id="btn-empty-start">📷 Uruchom kamerę</button>
+            <span class="or">lub</span>
+            <button class="btn big" id="btn-empty-film">🎬 Wczytaj film z telefonu</button>
+            <button class="lnk" id="btn-empty-rec" type="button">Nagraj nowy film aparatem telefonu</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="suggest" id="suggest" hidden>
+        <span>Nie wykryto nogi z kolanem w kadrze. Przy zbliżeniu samej stopy użyj trybu <b>Zbliżenie stopy</b> – wskażesz punkty palcem.</span>
+        <button class="btn primary small" id="btn-suggest">Przełącz na Zbliżenie stopy</button>
+      </div>
+
+      <div class="vctl" id="vctl" hidden aria-label="Odtwarzanie filmu">
+        <div class="vname" id="v-name"></div>
+        <div class="vrow">
+          <button class="btn primary" id="v-play" aria-label="Odtwarzaj / pauza">⏸</button>
+          <button class="btn" id="v-back" aria-label="Klatka wstecz" title="Klatka wstecz">⏮</button>
+          <button class="btn" id="v-fwd" aria-label="Klatka do przodu" title="Klatka do przodu">⏭</button>
+          <div class="seg" id="seg-speed" role="group" aria-label="Prędkość odtwarzania">
+            <button data-r="0.25" aria-pressed="false">0,25×</button><button data-r="0.5" aria-pressed="false">0,5×</button><button data-r="1" aria-pressed="true">1×</button>
+          </div>
+          <span class="vt" id="v-time">0:00 / 0:00</span>
+        </div>
+        <input type="range" id="v-seek" min="0" max="1000" value="0" step="1" aria-label="Przewijanie filmu">
+      </div>
+
+      <div class="bar" id="bar-facing">
+        <div class="field"><span>Kamera telefonu / laptopa</span>
+          <div class="seg lg" id="seg-facing" role="group" aria-label="Przednia lub tylna kamera">
+            <button data-f="environment" aria-pressed="false">📷 Tylna</button><button data-f="user" aria-pressed="true">🤳 Przednia</button>
+          </div></div>
+        <button class="btn" id="btn-flip2" style="align-self:flex-end">🔄 Przełącz</button>
+      </div>
+      <details class="fold-lite" id="c-set" open>
+        <summary>Ustawienia kamery i widoku</summary>
+      <div class="bar">
+        <label class="field grow" id="fld-cam" hidden><span>Kamera (urządzenie)</span>
+          <select id="sel-cam" aria-label="Wybór kamery"><option value="">Domyślna kamera</option></select></label>
+        <label class="field"><span>Rozdzielczość</span>
+          <select id="sel-res"><option value="640x480">640×480</option><option value="1280x720" selected>1280×720</option><option value="1920x1080">1920×1080</option></select></label>
+        <label class="field"><span>Model pozy</span>
+          <select id="sel-model"><option value="full">Full (zalecany)</option><option value="heavy">Heavy (najdokładniejszy, wolniejszy)</option></select></label>
+      </div>
+      <div class="bar">
+        <button class="btn primary" id="btn-cam">Uruchom kamerę</button>
+        <button class="btn" id="btn-film">🎬 Wczytaj film</button>
+        <button class="btn" id="btn-snap" disabled>📷 Zrzut PNG</button>
+        <span class="sep" style="width:1px;height:28px;margin:0 4px"></span>
+        <label class="switch"><input type="checkbox" id="chk-mirror" checked> Lustro</label>
+        <label class="switch"><input type="checkbox" id="chk-skel" checked> Szkielet</label>
+        <label class="switch"><input type="checkbox" id="chk-labels" checked> Kąty na obrazie</label>
+      </div>
+      </details>
+    </section>
+
+    <details class="card fold" id="c-live" open>
+      <summary><h2>Pomiar na żywo <span class="sub" id="live-sub">kliknij kartę, aby pokazać wykres</span></h2></summary>
+      <div class="angles" id="angles"></div>
+    </details>
+
+    <details class="card fold" id="c-chart" open>
+      <summary><h2>Wykres w czasie</h2></summary>
+      <div class="bar" style="margin:0 0 12px">
+        <div class="tabs" id="tabs"></div>
+        <span style="flex:1"></span>
+        <div class="seg" id="seg-win" role="group" aria-label="Okno czasu">
+          <button data-w="5" aria-pressed="false">5 s</button><button data-w="10" aria-pressed="true">10 s</button><button data-w="30" aria-pressed="false">30 s</button>
+        </div>
+      </div>
+      <div class="chartwrap"><canvas id="main-chart"></canvas></div>
+      <div class="bar" style="margin-top:12px"><div class="legend" id="legend"></div></div>
+      <p class="note">Zgięcie grzbietowe (+): palce stopy idą w stronę goleni. Zgięcie podeszwowe (−): stopa „pcha” do przodu (jak naciskanie pedału gazu). 0° = pozycja neutralna (stopa prostopadle do goleni) albo ustawiona przyciskiem „Ustaw pozycję neutralną”.</p>
+    </details>
+
+    <details class="card fold" id="c-hist" open>
+      <summary><h2>Historia i postępy <span class="sub" id="hist-sub"></span></h2></summary>
+      <div class="bar" style="margin:0 0 12px">
+        <label class="field"><span>Ćwiczenie</span><select id="hf-ex"></select></label>
+        <label class="field"><span>Wskaźnik</span><select id="hf-metric">
+          <option value="range">Zakres ruchu (°)</option><option value="max">Maks. zgięcie grzbietowe (°)</option><option value="min">Maks. zgięcie podeszwowe (°)</option><option value="reps">Powtórzenia</option></select></label>
+      </div>
+      <canvas id="prog-chart" aria-label="Wykres postępów"></canvas>
+      <div class="legend" style="margin-top:8px" id="prog-legend"></div>
+      <div class="hist-list tablewrap"><table id="hist-table"></table></div>
+      <div class="bar">
+        <button class="btn" id="btn-h-json">⬇ Eksport JSON</button>
+        <button class="btn" id="btn-h-csv">⬇ Eksport CSV</button>
+        <button class="btn" id="btn-h-import">⬆ Import JSON</button>
+        <button class="btn small" id="btn-h-clear" style="margin-left:auto">Wyczyść historię</button>
+        <input type="file" id="file-import" class="vh" accept="application/json,.json" tabindex="-1" aria-hidden="true">
+      </div>
+      <p class="note">Historia jest zapisana tylko w tej przeglądarce (localStorage). Zrób eksport JSON, aby przenieść ją na inne urządzenie albo zrobić kopię.</p>
+    </details>
+
+    <details class="card fold" id="c-compare" open>
+      <summary><h2>Porównanie nogi zdrowej i kontuzjowanej</h2></summary>
+      <div class="bar" style="margin:0 0 12px">
+        <label class="field"><span>Noga po urazie</span><select id="cmp-inj"><option value="R">Prawa</option><option value="L">Lewa</option></select></label>
+        <label class="field"><span>Ćwiczenie</span><select id="cmp-ex"></select></label>
+      </div>
+      <div class="tablewrap" id="cmp-box"></div>
+      <p class="note">Porównanie bierze ostatni zapisany pomiar każdej strony dla wybranego ćwiczenia. Nagraj po jednym pomiarze dla lewej i prawej nogi w takim samym ustawieniu kamery.</p>
+    </details>
+  </div>
+
+  <aside class="col">
+    <details class="card fold" id="c-ex" open>
+      <summary><h2>Ćwiczenie</h2></summary>
+      <div class="exlist" id="exlist" role="group" aria-label="Wybór ćwiczenia"></div>
+      <div class="exinfo"><div id="ex-svg"></div><ol id="ex-steps"></ol></div>
+      <div class="sep"></div>
+      <div class="grid2">
+        <label class="field"><span id="lab-thr">Min. amplituda powtórzenia (°)</span><input type="number" id="in-thr" inputmode="decimal" step="1" min="1"></label>
+        <label class="field"><span id="lab-tgt">Cel do utrzymania (°)</span><input type="number" id="in-tgt" inputmode="decimal" step="1"></label>
+        <label class="field"><span>Serie</span><input type="number" id="in-sets" inputmode="numeric" min="1" max="20" step="1"></label>
+        <label class="field"><span>Powtórzeń w serii</span><input type="number" id="in-reps" inputmode="numeric" min="1" max="100" step="1"></label>
+        <label class="field"><span>Utrzymanie (s)</span><input type="number" id="in-hold" inputmode="decimal" min="0" max="60" step="1"></label>
+      </div>
+      <div class="sep"></div>
+      <div class="cap">Cel sesji</div>
+      <div class="goalrow"><b id="g-main">0 / 15</b><span id="g-sub" style="color:var(--muted)">seria 1 z 3</span></div>
+      <div class="prog"><i id="g-bar"></i></div>
+      <div class="kv"><div><span>Powtórzenia łącznie</span><b id="kv-reps">0</b></div><div><span>Utrzymanie (najdł.)</span><b id="kv-hold">–</b></div></div>
+    </details>
+
+    <details class="card fold" id="c-mode" open>
+      <summary><h2>Śledzenie i strona</h2></summary>
+      <div class="cap" style="margin-bottom:6px">Tryb śledzenia</div>
+      <div class="seg" id="seg-mode" role="group" aria-label="Tryb śledzenia" style="display:flex">
+        <button data-m="pose" aria-pressed="true" style="flex:1">Cała noga</button>
+        <button data-m="closeup" aria-pressed="false" style="flex:1">Zbliżenie stopy</button>
+      </div>
+      <p class="note" id="mode-note" style="margin-top:8px"></p>
+      <div id="cu-box" hidden>
+        <div class="bar" style="margin-top:8px">
+          <button class="btn primary" id="cu-set">🎯 Ustaw punkty</button>
+          <button class="btn" id="cu-undo">↩ Cofnij punkt</button>
+          <button class="btn" id="cu-home" hidden>↺ Do klatki startowej</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="cap" style="margin-bottom:6px">Strona ciała</div>
+      <div class="seg" id="seg-side" role="group" aria-label="Strona" style="display:flex">
+        <button data-s="auto" aria-pressed="true" style="flex:1">Auto</button>
+        <button data-s="L" aria-pressed="false" style="flex:1">Lewa</button>
+        <button data-s="R" aria-pressed="false" style="flex:1">Prawa</button>
+      </div>
+      <p class="note" style="margin-top:8px"><b style="color:var(--left)">■</b> lewa strona (turkus) &nbsp; <b style="color:var(--right)">■</b> prawa strona (żółty). „Auto” wybiera stronę lepiej widoczną dla kamery (w trybie zbliżenia – nogę po urazie).</p>
+      <div class="sep"></div>
+      <div class="bar" style="margin-top:0">
+        <button class="btn" id="btn-cal">🎯 Ustaw pozycję neutralną</button>
+        <button class="btn small" id="btn-cal-reset">Zeruj kalibrację</button>
+      </div>
+      <p class="note" id="cal-note">Ustaw stopę w pozycji neutralnej (90° do goleni) i naciśnij przycisk – bieżący kąt zostanie uznany za 0°.</p>
+      <div class="sep"></div>
+      <div class="cap" style="margin-bottom:6px">Widok od przodu <span class="exp">eksperymentalny</span></div>
+      <label class="switch"><input type="checkbox" id="chk-front"> Wersja/inwersja stopy (kamera z przodu)</label>
+      <p class="note">Kąt odchylenia linii pięta–palce od pionu w kadrze z przodu/z tyłu. Mało dokładne – traktuj tylko jako pomoc, a nie wynik pomiaru.</p>
+    </details>
+
+    <details class="card fold" id="c-measure" open>
+      <summary><h2>Pomiar</h2></summary>
+      <label class="field" style="margin-bottom:10px"><span>Imię i nazwisko (do raportu)</span><input type="text" id="in-client" placeholder="np. Jan Kowalski" autocomplete="off"></label>
+      <div style="color:var(--dim);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase">Czas pomiaru</div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="stack" style="margin-top:12px">
+        <button class="btn primary big" id="btn-rec" disabled>▶ Rozpocznij pomiar</button>
+      </div>
+      <label class="switch" style="margin-top:12px"><input type="checkbox" id="chk-save" checked> Zapisz w historii po zakończeniu</label>
+      <div class="kv">
+        <div><span>Próbek</span><b id="kv-n">0</b></div>
+        <div><span>Strona</span><b id="kv-side">–</b></div>
+        <div><span>Zakres kostki</span><b id="kv-rom">–</b></div>
+        <div><span>Tryb</span><b id="kv-mode" style="font-size:16px">–</b></div>
+      </div>
+    </details>
+
+    <details class="card fold" id="c-export" open>
+      <summary><h2>Eksport i raport</h2></summary>
+      <div class="stack">
+        <button class="btn primary" id="btn-pdf" disabled>📄 Raport rehabilitacji stopy (PDF)</button>
+        <button class="btn" id="btn-csv" disabled>⬇ CSV – przebieg ostatniego pomiaru</button>
+      </div>
+      <p class="note" id="export-note">Raport i eksport aktywują się po zapisaniu pierwszego pomiaru.</p>
+    </details>
+
+    <details class="card fold" id="c-tips" open>
+      <summary><h2>Jak nagrać pomiar</h2></summary>
+      <ul class="tips">
+        <li>Ustaw telefon <b>na stabilnej podstawie</b> (statyw, stos książek) na wysokości kostki. Unikaj trzymania go w ręku.</li>
+        <li>Kamera <b>z boku, prostopadle</b> do stopy i goleni – stopa widoczna w profilu.</li>
+        <li>Jeśli się da, w kadrze powinno być też <b>kolano</b> – wtedy tryb „Cała noga” liczy kąt sam.</li>
+        <li>Przy samym zbliżeniu stopy użyj trybu <b>Zbliżenie stopy</b> i wskaż 3 punkty.</li>
+        <li><b>Kontrastowe tło</b> (jednolita ściana), dobre światło, bez cienia na stopie. Odsłoń kostkę i goleń.</li>
+        <li>Ćwicz w zakresie bez bólu; ruch powolny, ok. 2–3 s na cykl. Do raportu nagraj tę samą stronę i oba kierunki.</li>
+        <li id="tip-ios" hidden>iPhone / iPad: Udostępnij → „Dodaj do ekranu początkowego”, aby uruchamiać aplikację jak zwykłą.</li>
+      </ul>
+      <p class="disc"><b>Orientacyjnie</b> (dla zdrowego stawu, wartości przybliżone): zgięcie grzbietowe ok. 20°, zgięcie podeszwowe ok. 40–50°. To nie są normy ani cele – Twoje cele ustala fizjoterapeuta.</p>
+    </details>
+  </aside>
+</main>
+<footer>
+  <span>© Wojciech Wieczorek · Rehabilitacja stopy – prototyp. Wartości orientacyjne, nie stanowią diagnozy medycznej – skonsultuj ćwiczenia z fizjoterapeutą.</span>
+  <span>Pozy: MediaPipe PoseLandmarker · przetwarzanie lokalne w przeglądarce</span>
+</footer>
+<nav id="dock" aria-label="Sterowanie pomiarem">
+  <button class="btn dk" id="d-cam"><i>📷</i><span>Kamera</span></button>
+  <button class="btn dk" id="d-film" aria-label="Wczytaj film z telefonu"><i>🎬</i><span>Film</span></button>
+  <button class="btn primary dk wide" id="d-rec" disabled><i>●</i><span>Pomiar</span></button>
+  <button class="btn dk" id="d-fs" aria-label="Pełny ekran" disabled><i>⛶</i><span>Pełny</span></button>
+  <input type="file" id="file-video" class="vh" accept="video/*" tabindex="-1" aria-hidden="true">
+  <input type="file" id="file-rec" class="vh" accept="video/*" capture="environment" tabindex="-1" aria-hidden="true">
+</nav>
+<div id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="panel">
+    <h3 id="sheet-title">Plik gotowy</h3>
+    <p class="nm" id="sheet-name"></p>
+    <button class="btn primary" id="sh-share" hidden>↗ Udostępnij / zapisz…</button>
+    <a class="btn" id="sh-open" target="_blank" rel="noopener">Otwórz</a>
+    <a class="btn" id="sh-dl">⬇ Pobierz</a>
+    <button class="btn" id="sh-close">Zamknij</button>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
