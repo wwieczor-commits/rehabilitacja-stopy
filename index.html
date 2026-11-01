@@ -67,6 +67,11 @@
         <button class="btn primary small" id="btn-suggest">Przełącz na Zbliżenie stopy</button>
       </div>
 
+      <div class="pdfbar" id="pdfbar">
+        <button class="btn primary big" id="btn-pdf-main" type="button">📄 <span>Zapisz raport PDF</span></button>
+        <div class="pdfhint" id="pdf-hint">Aktywny po zakończeniu pierwszego pomiaru.</div>
+      </div>
+
       <div class="vctl" id="vctl" hidden aria-label="Odtwarzanie filmu">
         <div class="vname" id="v-name"></div>
         <div class="vrow">
@@ -226,6 +231,7 @@
         <button class="btn primary big" id="btn-rec" disabled>▶ Rozpocznij pomiar</button>
       </div>
       <label class="switch" style="margin-top:12px"><input type="checkbox" id="chk-save" checked> Zapisz w historii po zakończeniu</label>
+      <label class="switch" style="margin-top:8px"><input type="checkbox" id="chk-autostart" checked> Film: pomiar rusza sam po wskazaniu 3 punktów</label>
       <label class="switch" style="margin-top:8px"><input type="checkbox" id="chk-autopdf" checked> Automatyczny raport PDF po zatrzymaniu</label>
       <div class="kv">
         <div><span>Próbek</span><b id="kv-n">0</b></div>
@@ -267,6 +273,7 @@
   <button class="btn dk" id="d-cam"><i>📷</i><span>Kamera</span></button>
   <button class="btn dk" id="d-film" aria-label="Wczytaj film z telefonu"><i>🎬</i><span>Film</span></button>
   <button class="btn primary dk wide" id="d-rec" disabled><i>●</i><span>Pomiar</span></button>
+  <button class="btn dk" id="d-pdf" type="button" aria-label="Zapisz raport PDF"><i>📄</i><span>Raport</span></button>
   <button class="btn dk" id="d-voice" aria-label="Wycisz głos trenera"><i>🔊</i><span>Głos</span></button>
   <button class="btn dk" id="d-fs" aria-label="Pełny ekran" disabled><i>⛶</i><span>Pełny</span></button>
   <input type="file" id="file-video" class="vh" accept="video/*,.mov,.MOV,.mp4,.m4v,.webm,video/quicktime" tabindex="-1" aria-hidden="true">

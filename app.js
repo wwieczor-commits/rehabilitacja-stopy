@@ -87,11 +87,11 @@ const LS = { set: 'rehab.settings.v1', hist: 'rehab.sessions.v1' };
 function loadSettings() {
   let o = {}; try { o = JSON.parse(localStorage.getItem(LS.set) || '{}') } catch (e) { }
   S.ex = EX[o.ex] ? o.ex : 'pump'; S.injured = o.injured === 'L' ? 'L' : 'R'; S.client = o.client || '';
-  S.trackMode = o.trackMode === 'closeup' ? 'closeup' : 'pose'; S.autoPdf = o.autoPdf !== false;
+  S.trackMode = o.trackMode === 'closeup' ? 'closeup' : 'pose'; S.autoPdf = o.autoPdf !== false; S.autoStart = o.autoStart !== false;
   S.modelName = o.model === 'heavy' ? 'heavy' : 'full'; S.side = ['L', 'R', 'auto'].includes(o.side) ? o.side : 'auto';
   for (const k in EX) S.cfg[k] = { thr: EX[k].thr, tgt: EX[k].tgt, sets: 3, reps: 15, hold: 0, rest: 20, ...(o.cfg && o.cfg[k] || {}) };
 }
-function saveSettings() { try { localStorage.setItem(LS.set, JSON.stringify({ ex: S.ex, injured: S.injured, client: S.client, trackMode: S.trackMode, model: S.modelName, side: S.side, autoPdf: S.autoPdf !== false, cfg: S.cfg })) } catch (e) { } }
+function saveSettings() { try { localStorage.setItem(LS.set, JSON.stringify({ ex: S.ex, injured: S.injured, client: S.client, trackMode: S.trackMode, model: S.modelName, side: S.side, autoPdf: S.autoPdf !== false, autoStart: S.autoStart !== false, cfg: S.cfg })) } catch (e) { } }
 loadSettings();
 
 /* ---------- MediaPipe ---------- */
@@ -356,12 +356,13 @@ function cuStartPicking(reset) {
   const keepPick = S.cu && S.cu.pick && !reset;
   S.cu = { pts: [], tr: [], state: 'pick', pick: keepPick ? S.cu.pick : null, vals: null };
   if (S.running) { if (S.source === 'file') S.userPaused = true; video.pause() }
+  try { $('stage').scrollIntoView({ block: 'nearest' }) } catch (_) { }   // film ma być widoczny, żeby dało się stuknąć punkty
   $('stage').classList.add('cu-pick'); S.ema = {}; S.series = []; resetStats(); resetReps(); syncCuUI(); syncVctl(); render();
 }
 function cuStopPicking() { return S.cu && S.cu.state !== 'pick' }
 function cuTap(nx, ny, grab) {
   const cu = S.cu; if (!cu || !S.running) return false;
-  const g = grabGray(); if (!g) return false;
+  const g = grabGray(); if (!g) { toast('Obraz filmu jeszcze się nie wczytał – spróbuj za chwilę.', true); return false }
   if (cu.state === 'pick') {
     if (cu.pts.length >= 3) return false;
     cu.pts.push({ x: nx, y: ny }); cu.tr.push(TRK.init(g.g, g.W, g.H, nx * g.W, ny * g.H));
@@ -369,7 +370,11 @@ function cuTap(nx, ny, grab) {
       cu.state = 'track'; cu.pick = { t: video.currentTime || 0, pts: cu.tr.map(t => ({ x: t.x / g.W, y: t.y / g.H })), tr: cu.tr.map(cloneTr) };
       $('stage').classList.remove('cu-pick'); S.lastVT = video.currentTime || 0; cu.vals = null; COACH.st = 'ok'; Coach.say('Punkty ustawione. Śledzę stopę.', { p: 1, v: 'normal', key: 'pts', ttl: 4000 });
       if (S.source === 'camera') { video.play().catch(() => { }) }
-      toast(S.source === 'file' ? 'Punkty ustawione. Naciśnij ▶ lub „Rozpocznij pomiar”.' : 'Punkty ustawione – śledzę.', false, 3500);
+      { const th = angleBetween(cu.tr[0], cu.tr[1], cu.tr[2]); if (th != null) { const v = applyCal({ ankle: 90 - th, knee: null, tibia: null, heel: null, front: null }); cu.vals = v; S.lastVals = v; try { updatePanels() } catch (_) { } } }   // kąt widać od razu, jeszcze przed startem
+      if (S.source === 'file' && S.autoStart) {
+        toast('Punkty ustawione – pomiar rusza automatycznie. Raport: przycisk „Zapisz raport PDF”.', false, 4000);
+        setTimeout(() => { if (S.cu === cu && cu.state === 'track' && !S.rec && S.running && S.source === 'file') startRecording() }, 450);
+      } else toast(S.source === 'file' ? 'Punkty ustawione. Naciśnij „Rozpocznij pomiar” (lub ▶).' : 'Punkty ustawione – śledzę.', false, 5000);
     }
     syncCuUI(); render(); return true;
   }
@@ -729,7 +734,7 @@ function refreshHistoryUI() {
   const rows = [...list].reverse().map(s => `<tr><td>${dstr(s.ts, 1)}</td><td><span class="chip ${s.side}">${s.side === 'L' ? 'L' : 'P'}</span></td><td>${fmtMetric(s.m.key, s.m.min)}…${fmtMetric(s.m.key, s.m.max)}${s.m.unit}</td><td class="big">${s.m.range.toFixed(0)}${s.m.unit}</td><td>${s.reps}</td><td>${s.mode === 'closeup' ? 'zbliż.' : 'noga'}</td><td><button data-del="${s.id}" aria-label="Usuń pomiar" title="Usuń">✕</button></td></tr>`).join('');
   $('hist-table').innerHTML = `<thead><tr><th>Data</th><th>Str.</th><th>Min…max</th><th>Zakres</th><th>Powt.</th><th>Tryb</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" style="color:var(--dim)">Brak pomiarów dla tego ćwiczenia.</td></tr>'}</tbody>`;
   drawProgress(); renderCompare();
-  const has = S.hist.length > 0; $('btn-pdf').disabled = !has && !S.report && !(S.last && S.last.frames.length); $('btn-csv').disabled = !(S.last && S.last.frames.length);
+  const has = S.hist.length > 0; $('btn-pdf').disabled = !has && !S.report && !(S.last && S.last.frames.length); $('btn-csv').disabled = !(S.last && S.last.frames.length); syncPdfBtns();
   $('export-note').textContent = has ? `Raport obejmie ${S.hist.length} zapisanych pomiarów${S.client ? ' (' + S.client + ')' : ''}.` : 'Raport i eksport aktywują się po zapisaniu pierwszego pomiaru.';
 }
 const metricOf = (s, kind) => kind === 'range' ? s.m.range : kind === 'max' ? s.m.max : kind === 'min' ? Math.abs(s.m.min) : s.reps;
@@ -855,7 +860,7 @@ async function makeReport(opt) {
   else if (!hist.length && S.last && S.last.frames.length >= 8) { const t = buildSession(S.last); if (t) hist = [t] }
   if (!hist.length) { toast('Brak zapisanych pomiarów – wykonaj pomiar, aby wygenerować raport.', true); return }
   { const f = hist.slice().sort((a, b) => a.ts < b.ts ? -1 : 1).pop(); if (!opt.auto && S.source === 'file' && S.fileName && !(S.report && f.id === S.report.id)) { staleMsg = `Uwaga: raport dotyczy ostatniego pomiaru${f.file ? ' (film „' + f.file + '”)' : ''}, a nie filmu „${S.fileName}”. Najpierw wykonaj pomiar: ▶ Rozpocznij pomiar … ⏹ Zakończ pomiar.`; toast(staleMsg, true, 9000) } }
-  S.pdfBusy = true;
+  S.pdfBusy = true; syncPdfBtns();
   const btn = $('btn-pdf'); btn.disabled = true; const old = btn.textContent; btn.textContent = 'Generuję PDF…';
   try {
     await loadPdfLib(); const logo = await logoPng(); const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true }); const F = window.BRC_FONTS, C = PDFC;
@@ -952,7 +957,7 @@ async function makeReport(opt) {
     doc.setProperties({ title: 'Raport rehabilitacji stopy' + (S.client ? ' – ' + S.client : ''), author: 'Wojciech Wieczorek', subject: 'Zakres ruchu stawu skokowego', creator: 'Rehabilitacja stopy – Wojciech Wieczorek' });
     S.lastPdfBlob = doc.output('blob'); deliver(S.lastPdfBlob, `rehabilitacja-stopy-raport-${stampStr(new Date())}.pdf`, 'application/pdf', opt.sheet ? { sheet: true } : {}); toast(staleMsg ? 'Raport PDF zapisany. ' + staleMsg : IS_MOBILE ? 'Raport PDF gotowy.' : 'Raport PDF zapisany.', !!staleMsg, staleMsg ? 9000 : undefined); if (!opt.auto) Coach.say('Raport PDF gotowy.', { p: 2, v: 'minimal', key: 'pdf', ttl: 8000 });
   } catch (e) { console.error(e); toast('Nie udało się wygenerować raportu PDF: ' + (e && e.message || e), true, 9000) }
-  S.pdfBusy = false; btn.disabled = false; btn.textContent = old;
+  S.pdfBusy = false; btn.disabled = false; btn.textContent = old; syncPdfBtns();
 }
 
 /* ---------- zdarzenia ---------- */
@@ -976,7 +981,20 @@ async function toggleFs() {
 }
 document.addEventListener('fullscreenchange', updateFs); document.addEventListener('webkitfullscreenchange', updateFs);
 const dkSet = (el, ico, txt) => { el.querySelector('i').textContent = ico; el.querySelector('span').textContent = txt };
+/* duży, zawsze widoczny przycisk raportu (pod filmem + w pasku na telefonie) */
+function pdfAvail() { return S.hist.length > 0 || !!S.report || !!(S.last && S.last.frames.length >= 8) }
+async function pdfMainClick() {
+  if (S.rec) { toast('Najpierw zakończ pomiar (⏹) – raport powstanie automatycznie.', true); return }
+  if (!pdfAvail()) { toast('Brak pomiaru. Wskaż 3 punkty, uruchom pomiar i zakończ go – wtedy zapiszesz raport.', true, 5000); return }
+  return makeReport();
+}
+function syncPdfBtns() {
+  const ok = pdfAvail(), busy = !!S.pdfBusy, b = $('btn-pdf-main'), d = $('d-pdf');
+  b.classList.toggle('dim', !ok); d.classList.toggle('dim', !ok); b.disabled = busy; d.disabled = busy;
+  b.querySelector('span').textContent = busy ? 'Generuję PDF…' : 'Zapisz raport PDF'; $('pdf-hint').textContent = busy ? '' : S.rec ? 'Pomiar trwa – raport powstanie po zakończeniu.' : ok ? 'Raport z ostatniego pomiaru (i historii) – zapis do pliku PDF.' : 'Aktywny po zakończeniu pierwszego pomiaru.';
+}
 function syncDock() {
+  syncPdfBtns();
   const rec = !!S.rec, run = S.running, file = S.source === 'file';
   const dc = $('d-cam'); dkSet(dc, run ? '⏻' : '📷', run ? 'Stop' : 'Kamera'); dc.classList.toggle('danger', run);
   const dr = $('d-rec'); dr.disabled = $('btn-rec').disabled; const cdn = !!COACH.pend; dkSet(dr, rec ? '⏹' : cdn ? '✕' : '●', rec ? 'Koniec ' + $('timer').textContent : cdn ? 'Anuluj' : 'Pomiar'); dr.classList.toggle('danger', rec || cdn); dr.classList.toggle('primary', !rec && !cdn);
@@ -1141,7 +1159,7 @@ $('btn-rec').onclick = () => S.rec ? stopRecording({ auto: true }) : COACH.pend 
 async function snapshot() {
   if (!S.running) return; render(); composeFrame(document.createElement('canvas'), canvas.width, canvas.height).toBlob(b => { if (b) deliver(b, `rehabilitacja-stopy-klatka-${stampStr(new Date())}.png`, 'image/png') }, 'image/png');
 }
-$('btn-snap').onclick = snapshot; $('btn-pdf').onclick = makeReport; $('btn-csv').onclick = exportMeasureCSV;
+$('btn-snap').onclick = snapshot; $('btn-pdf').onclick = makeReport; $('btn-pdf-main').onclick = $('d-pdf').onclick = pdfMainClick; $('btn-csv').onclick = exportMeasureCSV;
 $('btn-h-json').onclick = exportHistJSON; $('btn-h-csv').onclick = exportHistCSV; $('btn-h-import').onclick = () => $('file-import').click();
 $('file-import').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) importHist(f); e.target.value = '' };
 $('btn-h-clear').onclick = () => { if (!S.hist.length) return; if (confirm('Usunąć całą historię pomiarów z tego urządzenia? Tej operacji nie można cofnąć (najpierw możesz wyeksportować JSON).')) { S.hist = []; saveHist(); refreshHistoryUI(); toast('Historia wyczyszczona.') } };
@@ -1154,7 +1172,8 @@ $('v-seek').addEventListener('input', e => { seeking = true; vSeekTo(e.target.va
 ['timeupdate', 'play', 'pause', 'seeked', 'ratechange', 'ended'].forEach(ev => video.addEventListener(ev, () => { if (S.source === 'file') syncVctl() }));
 video.addEventListener('seeked', () => { if (S.running && video.paused) render() });
 video.addEventListener('ended', () => { if (S.source === 'file' && S.rec) { stopRecording({ auto: true, noGesture: true }); toast('Film się skończył – pomiar zakończony automatycznie.') } });
-$('chk-autopdf').checked = S.autoPdf; $('chk-autopdf').onchange = e => { S.autoPdf = e.target.checked; saveSettings(); toast(S.autoPdf ? 'Raport PDF będzie tworzony automatycznie po zatrzymaniu pomiaru.' : 'Automatyczny raport PDF wyłączony.') };
+if ($('chk-autostart')) { $('chk-autostart').checked = S.autoStart; $('chk-autostart').onchange = e => { S.autoStart = e.target.checked; saveSettings(); toast(S.autoStart ? 'Pomiar filmu ruszy sam po wskazaniu 3 punktów.' : 'Pomiar filmu wystartuje po naciśnięciu „Rozpocznij pomiar”.') } }
+if ($('chk-autopdf')) $('chk-autopdf').checked = S.autoPdf; if ($('chk-autopdf')) $('chk-autopdf').onchange = e => { S.autoPdf = e.target.checked; saveSettings(); toast(S.autoPdf ? 'Raport PDF będzie tworzony automatycznie po zatrzymaniu pomiaru.' : 'Automatyczny raport PDF wyłączony.') };
 $('chk-mirror').onchange = () => { S.mirror = effMirror() };
 $('chk-skel').onchange = e => { S.skel = e.target.checked; if (S.running) render() }; $('chk-labels').onchange = e => { S.labels = e.target.checked; if (S.running) render() };
 $('sel-cam').onchange = () => { if (S.running && S.source === 'camera') startCamera() }; $('sel-res').onchange = () => { if (S.running && S.source === 'camera') startCamera() };
@@ -1177,7 +1196,11 @@ $('cu-set').onclick = () => { if (!S.running) { toast('Najpierw uruchom kamerę 
 $('cu-home').onclick = () => { if (S.cu && S.cu.pick) { if (S.rec) { toast('Pomiar trwa – zakończ go, aby wrócić do klatki startowej.'); return } cuRestore(false) } };
 /* wskazywanie punktów palcem / myszą */
 let drag = null;
-const toNorm = e => { const r = canvas.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))] };
+const toNorm = e => {   // współrzędne dotyku → ułamki obrazu filmu (z uwzględnieniem pasów object-fit:contain)
+  const r = canvas.getBoundingClientRect(), cw = canvas.width || 1, ch = canvas.height || 1, sc = Math.min(r.width / cw, r.height / ch) || 1;
+  const w = cw * sc, h = ch * sc, ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2, cl = v => Math.min(1, Math.max(0, v));
+  return [cl((e.clientX - ox) / w), cl((e.clientY - oy) / h)];
+};
 canvas.addEventListener('pointerdown', e => {
   if (S.trackMode !== 'closeup' || !S.running || !S.cu) return; const [nx, ny] = toNorm(e);
   if (S.cu.state === 'pick') { e.preventDefault(); cuTap(nx, ny); return }

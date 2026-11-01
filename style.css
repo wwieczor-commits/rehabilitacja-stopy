@@ -279,3 +279,12 @@ button,.btn,.seg button,.tab{touch-action:manipulation;-webkit-tap-highlight-col
 }
 .stage .hud,.stage .badge,.stage .nopose{pointer-events:none}
 @media (max-width:520px){.top{gap:10px;padding:10px 12px}.top .tag{padding-left:10px}.pill{min-width:0;max-width:62vw;font-size:12px;padding:5px 10px}.pill span,.pill #pill-model-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+
+/* ---------- v5: przycisk raportu, wysokość sceny, bezpieczne układy ---------- */
+.pdfbar{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.pdfbar .btn{width:100%;min-height:56px;font-size:17px;font-weight:800;justify-content:center}
+.pdfbar .btn.dim,#d-pdf.dim{opacity:.55}
+.pdfbar .pdfhint{font-size:12px;color:var(--dim);text-align:center}
+@media (min-width:901px) and (min-height:521px){.stage{max-height:calc(100dvh - 190px);min-height:240px}}
+.stage.fake-fs,.stage:fullscreen,.stage:-webkit-full-screen{max-height:none;min-height:0}
+@media (max-width:900px){.pdfbar{display:none}}

@@ -50,7 +50,9 @@ def closeup_run(page, tag, touch, max_s=None, full=False):
     tap_pts(page, CU_PTS, touch)
     check(f'[{tag}] 3 stuknięcia → stan „track”', page.evaluate("__rehab.cu.state") == 'track')
     page.locator('#stage').screenshot(path=f'{PRIV}/{tag}-punkty.png')
-    page.evaluate("document.getElementById('btn-rec').click()")
+    page.wait_for_timeout(1200)      # v5: po 3 punktach pomiar filmu rusza sam
+    auto = page.evaluate("!!__rehab.rec"); check(f'[{tag}] po 3 punktach pomiar rusza sam (film)', auto)
+    if not auto: page.evaluate("document.getElementById('btn-rec').click()")
     t0 = time.time(); shot = False
     while time.time() - t0 < 400:
         st = page.evaluate("[!!__rehab.rec, __rehab.mt]")
