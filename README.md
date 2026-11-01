@@ -11,44 +11,42 @@ historia postępów i raport PDF. Wszystko działa lokalnie w przeglądarce – 
 > ⚠️ Wartości są orientacyjne i **nie stanowią diagnozy medycznej**. Pomiar z kamery 2D nie zastępuje goniometru.
 > Zakres i rodzaj ćwiczeń skonsultuj z fizjoterapeutą lub lekarzem.
 
-## Co potrafi
+## Co potrafi (wersja 6)
 
-- **Dwa tryby pomiaru**
-  - **Cała noga (MediaPipe PoseLandmarker)** – model wyznacza kolano, kostkę, piętę i palce (strona lewa/prawa/auto).
-  - **Zbliżenie stopy** – gdy film pokazuje tylko stopę (bez kolana) lub model nie wykrywa sylwetki: stukasz **3 punkty**
-    (A – oś goleni, B – kostka boczna, C – przodostopie), a aplikacja śledzi je w filmie (korelacja fragmentów obrazu, czysty JS,
-    bez modelu). Kąt między odcinkami nie zależy od drżenia kamery (niezmienniczość względem obrotu). Dryf można poprawić
-    przeciągnięciem punktu. Aplikacja sama podpowiada ten tryb, gdy przez kilka sekund nie widzi sylwetki.
-- **Kąt kostki** względem pozycji neutralnej 90° (+ zgięcie grzbietowe, − podeszwowe), na żywo oraz min/maks/zakres; kąt kolana.
-  Przycisk **„Ustaw pozycję neutralną”**.
-- **Ćwiczenia** z instrukcją po polsku i rysunkiem: pompowanie stopą, wspięcie na palce, przysiad przy ścianie (knee-to-wall).
-  Licznik powtórzeń, progi, cel zakresu, czas utrzymania, cel sesji (np. 3×15).
-- Eksperymentalnie: **inwersja/ewersja** z widoku od przodu.
-- **Porównanie nogi zdrowej i po urazie** (zakres, deficyt %, asymetria).
-- **Historia i postępy** (localStorage): tabela, wykres po dniach, eksport/import **JSON** i **CSV**.
-- **Raport PDF „Raport rehabilitacji stopy”**: sesje, tabela zakresów, wykres postępu, klatki w maks. zgięciu grzbietowym i podeszwowym,
-  porównanie L/P, wartości orientacyjne, zastrzeżenie. Przykład: `screenshots/raport-przyklad.pdf`.
-- **Film z pliku** z kontrolkami: 0,25/0,5/1×, krok o klatkę, przewijanie. Przy filmach z iPhone’a w HEVC, których przeglądarka
-  nie odtworzy, pojawia się polski komunikat (zapisz jako „Najbardziej zgodny”/MP4 H.264).
-- Telefon: dolny pasek **Kamera / Film / Pomiar / Pełny**, pełny ekran, PWA (instalacja, praca offline po pierwszym wejściu).
+Jeden przepływ: **① Wczytaj film / Kamera → ② automatyczne wykrywanie stopy (popraw punkty przeciągnięciem) → ③ wynik → ④ Raport PDF.**
 
-## Jak nagrywać (podpowiedzi także w aplikacji)
+- **Automatyczne wykrywanie stopy i kostki bez widocznej całej sylwetki** – model **RTMW‑m** (133 punkty ciała/stóp, COCO‑WholeBody,
+  onnxruntime‑web, WASM; plik `assets/models/rtmw-m.onnx` leży w repozytorium, nic nie jest wysyłane do sieci). Stopa jest
+  szukana w obróconych wycinkach kadru, potem śledzona klatka po klatce. Kąt kostki liczony jest z osi stopy (pięta/kostka → palec)
+  względem osi goleni (z kolana, jeśli widać; inaczej prostopadle do stopy – można ją zmienić przyciskiem „Zamień kierunek goleni”
+  albo przeciągnięciem żółtego uchwytu).
+- **Wczytywanie filmów, które po prostu działa** – .MOV/.MP4/.M4V z iPhone’a (pionowe, poziome, metadane obrotu, HEVC i H.264),
+  Safari i Chrome na Macu i iPhonie. Film jest czytany deterministycznie klatka po klatce (z paskiem postępu), a gdy przeglądarka
+  nie umie go zdekodować (np. HEVC w Chrome), aplikacja sama go **konwertuje w przeglądarce** (ffmpeg.wasm, lokalnie, do H.264 ≤960 px).
+- **Tryb ręczny (3 punkty)** z śledzeniem korelacją obrazu – awaryjnie, gdy automat się myli. Punkty można przeciągać.
+- **Kamera na żywo** – to samo wykrywanie w czasie rzeczywistym, „Start pomiaru” / „Stop”.
+- **Raport PDF** (jsPDF, polskie fonty): logo, pacjent/data, KPI, klatki z maks. i min. kąta **z bieżącego filmu**, wykres kąta w czasie,
+  historia i postępy, porównanie nogi po urazie i zdrowej, uwagi. Zapisuje się **automatycznie po pomiarze** (przełącznik)
+  oraz przyciskiem „Zapisz raport PDF” (na telefonie: dolny pasek).
+- **Historia** (`localStorage`, `rehab.sessions.v1`) z eksportem/importem JSON i CSV; ustawienia z wersji 5 są migrowane.
+- **Trener głosowy** (poniżej), PWA (instalacja, praca offline po pierwszym wejściu; service worker `v6`, sieć‑najpierw dla kodu).
+- Układ: duże przyciski, na telefonie lepki dolny pasek **Film / Kamera / Raport PDF**, nic nie wychodzi poza ekran
+  także przy filmie pionowym na laptopie. Wersja widoczna w stopce (`v6.0 · 2026-11-01`).
 
-- Telefon oprzyj stabilnie (statyw, stos książek) **na wysokości kostki**, **prostopadle** do płaszczyzny ruchu stopy (widok z boku).
-- Jeśli się da, w kadrze zostaw **kolano** i całą stopę – wtedy działa tryb „Cała noga”. Bliskie ujęcie samej stopy → tryb „Zbliżenie stopy”.
-- Kontrastowe tło (jasna stopa – ciemne tło lub odwrotnie), dobre światło, bez ruchu kamery w trakcie serii.
-- Przy trybie zbliżenia wskazuj punkty na skórze (nie na samej krawędzi na tle) i ustaw pozycję neutralną.
+## Jak nagrywać
+
+- Telefon stabilnie, **z boku** na wysokości kostki, prostopadle do płaszczyzny ruchu; w kadrze cała stopa (kolano pomaga, ale nie jest konieczne).
+- Kontrastowe tło, dobre światło, brak ruchu kamery w trakcie serii. Film do ~2 min (dłuższy jest skracany).
 
 ## Uruchomienie lokalne
-
-Statyczna strona bez budowania:
 
 ```bash
 python3 -m http.server 8766   # i otwórz http://127.0.0.1:8766/
 ```
 
-Kamera wymaga HTTPS albo `localhost`. Biblioteki (MediaPipe Tasks Vision 0.10.21, jsPDF 2.5.2) ładują się z CDN,
-z lokalnym zapasem w `assets/`.
+Kamera wymaga HTTPS albo `localhost`. Wszystko (model, ONNX Runtime, ffmpeg.wasm, jsPDF, fonty) jest w `assets/` – bez CDN.
+Układ plików: `index.html`, `style.css`, `js/` (`app` – interfejs, `pose` – model i śledzenie stopy, `video` – wczytywanie filmów,
+`convert` – konwersja ffmpeg.wasm, `metrics` – kąty/zakres/powtórzenia, `report` – PDF, `store` – historia), `tracker.js` (tryb ręczny).
 
 ## Trener głosowy (w tle)
 
@@ -64,10 +62,13 @@ Test: `python3 tests/test_coach.py` (speechSynthesis podmieniony na szpiega).
 
 ## Testy
 
-`tests/test_app.py` (Playwright + Chrome; filmy testowe nie są w repozytorium), `tests/smoke.py`, `tests/run_cu.py` (zbliżenie).
-`tests/sample-history.json` – syntetyczne dane demonstracyjne do importu.
+- `python3 tests/test_version.py` – spójność wersji (sw.js ↔ js/version.js) i brak filmów w repozytorium.
+- `python3 tests/test_e2e.py [chromium|webkit|all]` – Playwright, prawdziwe kliknięcia, desktop + telefon, film poziomy i pionowy
+  (syntetyczny, generowany przez `tests/make_synth.py`; żadnych prywatnych nagrań), automatyczny PDF, historia, brak przewijania poziomego.
+- `python3 tests/perf_long.py 3` – kilka pomiarów pod rząd: płynność odtwarzania i czas analizy nie mogą się pogarszać.
 
 ## Ograniczenia
 
-Prototyp. Pomiar 2D z kamery zależy od ustawienia kamery i wyboru punktów; nie był porównywany z goniometrem.
-Śledzenie w trybie zbliżenia może dryfować przy szybkich ruchach lub zmianie oświetlenia – popraw punkty przeciągnięciem.
+Prototyp, wartości orientacyjne. Pomiar 2D z kamery zależy od ustawienia kamery; nie porównywano go z goniometrem.
+Domyślna oś goleni (gdy kolano nie jest widoczne) jest zgadywana jako prostopadła do stopy – sprawdź żółty uchwyt.
+Model może się mylić na rysunkach/bardzo rozmytych ujęciach – wtedy użyj trybu ręcznego.
