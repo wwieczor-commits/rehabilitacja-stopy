@@ -32,8 +32,9 @@ main{max-width:1500px;margin:0 auto;padding:24px;display:grid;grid-template-colu
 
 /* stage */
 .stage{position:relative;background:#000;border-radius:var(--r-lg);overflow:hidden;border:1px solid #3a3838;aspect-ratio:16/9;width:100%;max-width:100%}
-.stage canvas{width:100%;height:100%;display:block;object-fit:contain;background:#000}
-.stage video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain;background:transparent}
+.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;pointer-events:none}
+.stage video.mir{transform:scaleX(-1)}
 .hud{position:absolute;left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap}
 .badge{background:rgba(31,30,30,.78);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(4px);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
 .badge.rec{color:#fff;background:rgba(254,44,85,.85);border-color:transparent}
@@ -132,7 +133,6 @@ footer{max-width:1500px;margin:0 auto;padding:8px 24px 40px;color:var(--dim);fon
 html{-webkit-text-size-adjust:100%;overflow-x:hidden}
 body{overflow-x:hidden;overscroll-behavior-y:none}
 button,.btn,.seg button,.tab{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.stage video{width:2px;height:2px;opacity:.01}
 .stbtns{position:absolute;right:10px;top:10px;display:flex;gap:8px;z-index:3}
 .rbtn{appearance:none;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(31,30,30,.72);backdrop-filter:blur(4px);color:#fff;font-size:20px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0}
 .rbtn:active{background:rgba(46,196,182,.5)}

@@ -61,6 +61,7 @@ const CU_HELP = ['Stuknij punkt 1/3: oś goleni – punkt na łydce, wyżej od k
 
 /* ---------- stan ---------- */
 const S = {
+  prof: { track: 0, render: 0, n: 0 },
   lib: null, landmarker: null, modelName: 'full', delegate: 'GPU', running: false, source: null, stream: null, fileUrl: null, fileName: null,
   side: 'auto', autoSide: 'R', visEma: { L: .5, R: .5 }, mirror: true, skel: true, labels: true, sel: 'ankle', win: 10,
   trackMode: 'pose', ex: 'pump', cfg: {}, injured: 'R', client: '',
@@ -86,11 +87,11 @@ const LS = { set: 'rehab.settings.v1', hist: 'rehab.sessions.v1' };
 function loadSettings() {
   let o = {}; try { o = JSON.parse(localStorage.getItem(LS.set) || '{}') } catch (e) { }
   S.ex = EX[o.ex] ? o.ex : 'pump'; S.injured = o.injured === 'L' ? 'L' : 'R'; S.client = o.client || '';
-  S.trackMode = o.trackMode === 'closeup' ? 'closeup' : 'pose';
+  S.trackMode = o.trackMode === 'closeup' ? 'closeup' : 'pose'; S.autoPdf = o.autoPdf !== false;
   S.modelName = o.model === 'heavy' ? 'heavy' : 'full'; S.side = ['L', 'R', 'auto'].includes(o.side) ? o.side : 'auto';
   for (const k in EX) S.cfg[k] = { thr: EX[k].thr, tgt: EX[k].tgt, sets: 3, reps: 15, hold: 0, rest: 20, ...(o.cfg && o.cfg[k] || {}) };
 }
-function saveSettings() { try { localStorage.setItem(LS.set, JSON.stringify({ ex: S.ex, injured: S.injured, client: S.client, trackMode: S.trackMode, model: S.modelName, side: S.side, cfg: S.cfg })) } catch (e) { } }
+function saveSettings() { try { localStorage.setItem(LS.set, JSON.stringify({ ex: S.ex, injured: S.injured, client: S.client, trackMode: S.trackMode, model: S.modelName, side: S.side, autoPdf: S.autoPdf !== false, cfg: S.cfg })) } catch (e) { } }
 loadSettings();
 
 /* ---------- MediaPipe ---------- */
@@ -186,10 +187,15 @@ const flipCamera = () => setFacing(S.facing === 'environment' ? 'user' : 'enviro
 
 /* ---------- film z pliku ---------- */
 let fileTok = 0;
+function resetMeasurementState() {
+  S.rec = null; S.last = null; S.lastSession = null; S.report = null; S.reportSaved = false; S.lastVals = null; S.lastRaw = null; S.lastLm = null;
+  $('btn-csv').disabled = true; $('btn-pdf').disabled = !S.hist.length; $('timer').textContent = '00:00';
+}
 async function startFile(file) {
   if (!file) return;
   if (file.type && !/^video\//.test(file.type) && !/\.(mp4|m4v|mov|webm|mkv|3gp|avi)$/i.test(file.name || '')) { toast('To nie jest plik wideo.', true); return }
   stopAll(true); const tok = ++fileTok;
+  resetMeasurementState();   // nowy film = nowy pomiar: żadnych klatek/miniatur/raportu ze starego filmu
   S.fileUrl = URL.createObjectURL(file); S.source = 'file'; S.fileName = file.name || 'film'; S.mt = 0; S.userPaused = false;
   setBusy(true); toast('Wczytuję film…', false, 2500);
   video.srcObject = null; video.muted = true; video.defaultMuted = true; video.playsInline = true; video.loop = true; video.preload = 'auto'; video.src = S.fileUrl;
@@ -201,7 +207,7 @@ async function startFile(file) {
   });
   if (tok !== fileTok) return;
   if (!loaded || !video.videoWidth) { toast(FILE_ERR, true, 14000); stopAll(true); setBusy(false); return }
-  video.playbackRate = S.rate;
+  video.playbackRate = S.rate; S.gapEma = 0; S.adaptRate = 0;
   try { await video.play() } catch (e) { if (e && e.name === 'NotAllowedError') { S.userPaused = true; toast('Naciśnij ▶, aby odtworzyć film.') } else { toast(FILE_ERR, true, 14000); stopAll(true); setBusy(false); return } }
   if (tok !== fileTok) return;
   video.onerror = () => { if (S.source === 'file' && S.running) { toast(FILE_ERR, true, 12000); stopAll(true) } };
@@ -453,7 +459,7 @@ function loop() {
     else { if (!S.noPoseSince) S.noPoseSince = now; if (now - S.noPoseSince > 700) $('nopose').style.display = 'block' }
     if (!raw && S.noPoseSince && now - S.noPoseSince > 3500) $('suggest').hidden = false; else if (raw) $('suggest').hidden = true;
   } else {
-    cuRes = cuTrack(vt); if (cuRes) raw = { ankle: 90 - cuRes.theta, knee: null, tibia: null, heel: null, front: null };
+    const tc = performance.now(); cuRes = cuTrack(vt); S.prof.track += performance.now() - tc; S.prof.n++; if (cuRes) raw = { ankle: 90 - cuRes.theta, knee: null, tibia: null, heel: null, front: null };
     $('nopose').style.display = 'none';
   }
   S.lastVT = vt;
@@ -462,20 +468,24 @@ function loop() {
   const t = clk() - S.t0;
   if (raw) {
     const sm = smoothVals(raw, t); S.lastRaw = sm; const vals = applyCal(sm); S.lastVals = vals; S.lastLm = lm; if (S.cu) S.cu.vals = vals;
-    addStatsTo(S.stats, vals); S.series.push({ t, v: vals }); while (S.series.length && t - S.series[0].t > 65) S.series.shift();
+    addStatsTo(S.stats, vals); if (S.series.length && t < S.series[S.series.length - 1].t - .5) S.series.length = 0; S.series.push({ t, v: vals }); while (S.series.length && (t - S.series[0].t > 65 || S.series.length > 6000)) S.series.shift();
     updateReps(t, vals);
     if (S.rec) recFrame(vals, t);
   } else if (S.trackMode === 'pose') { S.lastLm = lm || null }
-  fps(now); render();
+  fps(now); const tr0 = performance.now(); render(); S.prof.render += performance.now() - tr0;
   if (S.rec && raw) captureKey();
 }
 /* Film w trybie zbliżenia: śledzenie punktów nie może „gubić” klatek – gdy urządzenie nie nadąża,
    odtwarzanie jest automatycznie zwalniane (dokładność ważniejsza niż czas rzeczywisty). */
 function adaptRate(gap) {
   if (!(gap > 0 && gap < 0.5)) return;
-  S.gapEma = S.gapEma ? S.gapEma * .6 + gap * .4 : gap; let r = video.playbackRate;
-  if (S.gapEma > 0.075 && r > 0.1) { r = Math.max(0.1, r * .6); S.gapEma = 0 } else if (S.gapEma && S.gapEma < 0.03 && r < S.rate) { r = Math.min(S.rate, r * 1.3); S.gapEma = 0 } else return;
-  video.playbackRate = r; S.adaptRate = r; $('v-time').title = 'Tempo analizy dostosowane: ×' + r.toFixed(2);
+  S.gapEma = S.gapEma ? S.gapEma * .6 + gap * .4 : gap; const r = video.playbackRate;
+  /* odstęp między analizowanymi klatkami (w sekundach filmu) ≈ tempo × czas przetwarzania; celujemy w ~0,06 s.
+     Tempo zmienia się w obie strony (z histerezą ±25%) i ma dolny próg – nie może „utknąć” na niskiej wartości. */
+  const step = S.gapEma / Math.max(.05, r); let t = Math.min(S.rate, Math.max(.3, .06 / Math.max(.005, step)));
+  if (Math.abs(t / r - 1) < .25 && !(t >= S.rate && r < S.rate)) return;
+  if (t >= S.rate * .9) t = S.rate;
+  video.playbackRate = t; S.adaptRate = t; S.gapEma = 0; $('v-time').title = 'Tempo analizy dostosowane: ×' + t.toFixed(2);
 }
 function fps(now) {
   S.fpsN++; if (now - S.fpsT >= 1000) { S.fps = S.fpsN * 1000 / (now - S.fpsT); S.fpsN = 0; S.fpsT = now; $('b-fps').textContent = `${S.fps.toFixed(0)} FPS` + (S.trackMode === 'pose' ? ` · ${S.inferMs.toFixed(0)} ms` : '') }
@@ -484,8 +494,9 @@ function fps(now) {
 /* ---------- rysowanie ---------- */
 const SC = () => Math.max(.7, canvas.width / 1000);
 function render() {
-  const w = canvas.width, h = canvas.height; if (!w || !video.videoWidth) return;
-  ctx.save(); if (S.mirror) { ctx.translate(w, 0); ctx.scale(-1, 1) } ctx.drawImage(video, 0, 0, w, h); ctx.restore();
+  // Obraz wyświetla natywny element <video> (pełna jakość, płynnie, bez kopiowania klatek); canvas to tylko przezroczysta nakładka z kątami.
+  const w = canvas.width, h = canvas.height; if (!w) return; ctx.clearRect(0, 0, w, h); if (!video.videoWidth) return;
+  const mir = !!S.mirror; if (mir !== S.vidMirror) { S.vidMirror = mir; video.classList.toggle('mir', mir) }
   if (S.skel) { if (S.trackMode === 'pose' && S.lastLm) drawPose(S.lastLm, S.lastVals, w, h); else if (S.trackMode === 'closeup' && S.cu) drawCu(w, h) }
 }
 function drawPose(lm, vals, w, h) {
@@ -646,13 +657,19 @@ function recFrame(vals, t) {
   const r = S.rec; r.frames.push({ t: +(clk() - r.t0).toFixed(3), a: vals.ankle, k: vals.knee, ti: vals.tibia, h: vals.heel }); addStatsTo(r.stats, vals); r.sideN[curSide()]++;
 }
 const thumbC = document.createElement('canvas');
-function thumb() { const sc = Math.min(1, 480 / canvas.width); thumbC.width = Math.round(canvas.width * sc); thumbC.height = Math.round(canvas.height * sc); const g = thumbC.getContext('2d'); g.drawImage(canvas, 0, 0, thumbC.width, thumbC.height); return thumbC.toDataURL('image/jpeg', .72) }
+/* klatka + nakładka złożone w jeden obraz (miniatury do raportu, zrzut PNG) */
+function composeFrame(dst, w, h) {
+  dst.width = w; dst.height = h; const g = dst.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  if (video.videoWidth) { g.save(); if (S.mirror) { g.translate(w, 0); g.scale(-1, 1) } g.drawImage(video, 0, 0, w, h); g.restore() }
+  g.drawImage(canvas, 0, 0, w, h); return dst;
+}
+function thumb() { const sc = Math.min(1, 480 / canvas.width); composeFrame(thumbC, Math.round(canvas.width * sc), Math.round(canvas.height * sc)); return thumbC.toDataURL('image/jpeg', .72) }
 function captureKey() {
   const r = S.rec, v = S.lastVals && S.lastVals.ankle; if (v == null) return; const t = clk() - r.t0, c = r.caps;
   if (!c.max || v > c.max.v + .4) c.max = { v, t, img: thumb() };
   if (!c.min || v < c.min.v - .4) c.min = { v, t, img: thumb() };
 }
-function stopRecording() {
+function stopRecording(opt = {}) {
   if (!S.rec) return; clearInterval(recTick);
   const r = S.rec; r.dur = clk() - r.t0; if (S.source === 'file') video.loop = true; r.endedAt = new Date(); S.rec = null; S.last = r; if (S.reps) endHoldIfAny();
   $('btn-rec').textContent = '▶ Rozpocznij pomiar'; $('btn-rec').classList.add('primary'); $('btn-rec').classList.remove('danger'); $('b-rec').hidden = true; $('timer').classList.remove('on'); $('timer').textContent = mmss(r.dur);
@@ -664,7 +681,18 @@ function stopRecording() {
   if (sess && $('chk-save').checked) { addSession(sess); toast(`Zapisano w historii: zakres ${sess.m.range.toFixed(0)}°, powtórzeń: ${sess.reps}.`, false, 6000) }
   else if (!sess) toast('Za mało danych w tym pomiarze (nie wykryto stopy) – nic nie zapisano.', true, 7000);
   else toast('Pomiar zakończony (nie zapisano w historii).');
-  S.lastSession = sess; syncDock(); refreshHistoryUI(); coachRecEnd(r, sess, prevSess);
+  S.lastSession = sess; S.reportSaved = !!(sess && $('chk-save').checked);
+  S.report = sess ? { ...sess } : null;   // własna kopia (z miniaturami) – raport nie zależy od tego, co zrobi historia (np. zwolnienie miejsca)
+  syncDock(); refreshHistoryUI(); coachRecEnd(r, sess, prevSess);
+  if (opt.auto && S.autoPdf) autoReport(r, sess, opt);
+}
+const AUTO_MIN_DUR = 2, AUTO_MIN_FRAMES = 15;
+function autoReport(r, sess, opt) {
+  if (!sess) { toast('Za mało danych w tym pomiarze (nie wykryto stopy) – raport PDF nie został wygenerowany.', true, 7000); return }
+  if (r.dur < AUTO_MIN_DUR || r.frames.length < AUTO_MIN_FRAMES) { toast(`Pomiar był zbyt krótki (${r.dur.toFixed(1)} s, ${r.frames.length} próbek) – raport PDF nie został wygenerowany automatycznie. Wykonaj dłuższy pomiar.`, true, 8000); return }
+  // film kończy się bez kliknięcia użytkownika – Safari może zablokować automatyczne pobranie, więc pokazujemy okno „Plik gotowy”
+  const noGesture = !!opt.noGesture && /^((?!chrome|android|crios|fxios).)*safari/i.test(UA);
+  setTimeout(() => makeReport({ auto: true, sheet: noGesture ? true : undefined }), 250);
 }
 function endHoldIfAny() { const R = S.reps; if (R && R.holdStart != null) endHold(clk() - S.t0) }
 function buildSession(r) {
@@ -701,7 +729,7 @@ function refreshHistoryUI() {
   const rows = [...list].reverse().map(s => `<tr><td>${dstr(s.ts, 1)}</td><td><span class="chip ${s.side}">${s.side === 'L' ? 'L' : 'P'}</span></td><td>${fmtMetric(s.m.key, s.m.min)}…${fmtMetric(s.m.key, s.m.max)}${s.m.unit}</td><td class="big">${s.m.range.toFixed(0)}${s.m.unit}</td><td>${s.reps}</td><td>${s.mode === 'closeup' ? 'zbliż.' : 'noga'}</td><td><button data-del="${s.id}" aria-label="Usuń pomiar" title="Usuń">✕</button></td></tr>`).join('');
   $('hist-table').innerHTML = `<thead><tr><th>Data</th><th>Str.</th><th>Min…max</th><th>Zakres</th><th>Powt.</th><th>Tryb</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" style="color:var(--dim)">Brak pomiarów dla tego ćwiczenia.</td></tr>'}</tbody>`;
   drawProgress(); renderCompare();
-  const has = S.hist.length > 0; $('btn-pdf').disabled = !has && !(S.last && S.last.frames.length); $('btn-csv').disabled = !(S.last && S.last.frames.length);
+  const has = S.hist.length > 0; $('btn-pdf').disabled = !has && !S.report && !(S.last && S.last.frames.length); $('btn-csv').disabled = !(S.last && S.last.frames.length);
   $('export-note').textContent = has ? `Raport obejmie ${S.hist.length} zapisanych pomiarów${S.client ? ' (' + S.client + ')' : ''}.` : 'Raport i eksport aktywują się po zapisaniu pierwszego pomiaru.';
 }
 const metricOf = (s, kind) => kind === 'range' ? s.m.range : kind === 'max' ? s.m.max : kind === 'min' ? Math.abs(s.m.min) : s.reps;
@@ -816,9 +844,18 @@ function pdfLine(doc, pts, col, w) { // polilinia z przerwami
   doc.setDrawColor(col); doc.setLineWidth(w); let seg = []; const flush = () => { if (seg.length > 1) { const l = []; for (let q = 1; q < seg.length; q++) l.push([seg[q][0] - seg[q - 1][0], seg[q][1] - seg[q - 1][1]]); doc.lines(l, seg[0][0], seg[0][1], [1, 1], 'S', false) } seg = [] };
   for (const p of pts) { if (p == null) flush(); else seg.push(p) } flush();
 }
-async function makeReport() {
-  let hist = S.hist.slice(); if (!hist.length && S.last && S.last.frames.length >= 8) { const t = buildSession(S.last); if (t) hist = [t] }
+async function makeReport(opt) {
+  if (opt && opt.target) opt = null;   // wywołanie z kliknięcia (Event)
+  opt = opt || {};
+  if (S.pdfBusy) return;
+  // Raport = zapisana historia + OSTATNI pomiar z bieżącej sesji (nawet jeśli nie zapisano go w historii).
+  // Ostatni pomiar bierzemy z S.report (własna kopia z miniaturami), a nie z historii – historia mogła stracić miniatury.
+  let staleMsg = '', hist = S.hist.slice();
+  if (S.report && (!S.reportSaved || hist.some(h => h.id === S.report.id))) { const i = hist.findIndex(h => h.id === S.report.id); if (i >= 0) hist[i] = S.report; else hist.push(S.report) }
+  else if (!hist.length && S.last && S.last.frames.length >= 8) { const t = buildSession(S.last); if (t) hist = [t] }
   if (!hist.length) { toast('Brak zapisanych pomiarów – wykonaj pomiar, aby wygenerować raport.', true); return }
+  { const f = hist.slice().sort((a, b) => a.ts < b.ts ? -1 : 1).pop(); if (!opt.auto && S.source === 'file' && S.fileName && !(S.report && f.id === S.report.id)) { staleMsg = `Uwaga: raport dotyczy ostatniego pomiaru${f.file ? ' (film „' + f.file + '”)' : ''}, a nie filmu „${S.fileName}”. Najpierw wykonaj pomiar: ▶ Rozpocznij pomiar … ⏹ Zakończ pomiar.`; toast(staleMsg, true, 9000) } }
+  S.pdfBusy = true;
   const btn = $('btn-pdf'); btn.disabled = true; const old = btn.textContent; btn.textContent = 'Generuję PDF…';
   try {
     await loadPdfLib(); const logo = await logoPng(); const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true }); const F = window.BRC_FONTS, C = PDFC;
@@ -913,9 +950,9 @@ async function makeReport() {
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setDrawColor(C.line); doc.setLineWidth(.2); doc.line(M, PH - 17, PW - M, PH - 17); font('Inter', 'normal', 6.8, C.grey); txt('Wartości orientacyjne, generowane automatycznie – nie stanowią diagnozy medycznej. Skonsultuj ćwiczenia z fizjoterapeutą.', M, PH - 12.5); font('Inter', 'bold', 8, C.tealD); txt('© Wojciech Wieczorek', M, PH - 7); const cw = doc.getTextWidth('© Wojciech Wieczorek'); font('Inter', 'normal', 8, C.grey); txt('· Rehabilitacja stopy – prototyp', M + cw + 2.2, PH - 7); txt(`Strona ${i} z ${n}`, PW - M, PH - 7, { align: 'right' }) }
     doc.setProperties({ title: 'Raport rehabilitacji stopy' + (S.client ? ' – ' + S.client : ''), author: 'Wojciech Wieczorek', subject: 'Zakres ruchu stawu skokowego', creator: 'Rehabilitacja stopy – Wojciech Wieczorek' });
-    S.lastPdfBlob = doc.output('blob'); deliver(S.lastPdfBlob, `rehabilitacja-stopy-raport-${stampStr(new Date())}.pdf`, 'application/pdf'); toast(IS_MOBILE ? 'Raport PDF gotowy.' : 'Raport PDF zapisany.'); Coach.say('Raport PDF gotowy.', { p: 2, v: 'minimal', key: 'pdf', ttl: 8000 });
+    S.lastPdfBlob = doc.output('blob'); deliver(S.lastPdfBlob, `rehabilitacja-stopy-raport-${stampStr(new Date())}.pdf`, 'application/pdf', opt.sheet ? { sheet: true } : {}); toast(staleMsg ? 'Raport PDF zapisany. ' + staleMsg : IS_MOBILE ? 'Raport PDF gotowy.' : 'Raport PDF zapisany.', !!staleMsg, staleMsg ? 9000 : undefined); if (!opt.auto) Coach.say('Raport PDF gotowy.', { p: 2, v: 'minimal', key: 'pdf', ttl: 8000 });
   } catch (e) { console.error(e); toast('Nie udało się wygenerować raportu PDF: ' + (e && e.message || e), true, 9000) }
-  btn.disabled = false; btn.textContent = old;
+  S.pdfBusy = false; btn.disabled = false; btn.textContent = old;
 }
 
 /* ---------- zdarzenia ---------- */
@@ -1100,9 +1137,9 @@ function coachRecEnd(r, sess, prev) {
   Coach.say('Pamiętaj: przy bólu przerwij ćwiczenia. Cele ustala fizjoterapeuta.', { p: 1, v: 'normal', key: 'safety', ttl: 25000 });
 }
 
-$('btn-rec').onclick = () => S.rec ? stopRecording() : COACH.pend ? coachCancelStart() : coachStartMeasure();
+$('btn-rec').onclick = () => S.rec ? stopRecording({ auto: true }) : COACH.pend ? coachCancelStart() : coachStartMeasure();
 async function snapshot() {
-  if (!S.running) return; render(); canvas.toBlob(b => { if (b) deliver(b, `rehabilitacja-stopy-klatka-${stampStr(new Date())}.png`, 'image/png') }, 'image/png');
+  if (!S.running) return; render(); composeFrame(document.createElement('canvas'), canvas.width, canvas.height).toBlob(b => { if (b) deliver(b, `rehabilitacja-stopy-klatka-${stampStr(new Date())}.png`, 'image/png') }, 'image/png');
 }
 $('btn-snap').onclick = snapshot; $('btn-pdf').onclick = makeReport; $('btn-csv').onclick = exportMeasureCSV;
 $('btn-h-json').onclick = exportHistJSON; $('btn-h-csv').onclick = exportHistCSV; $('btn-h-import').onclick = () => $('file-import').click();
@@ -1116,7 +1153,8 @@ $('v-seek').addEventListener('input', e => { seeking = true; vSeekTo(e.target.va
 ['change', 'pointerup', 'touchend'].forEach(ev => $('v-seek').addEventListener(ev, () => { seeking = false; syncVctl() }));
 ['timeupdate', 'play', 'pause', 'seeked', 'ratechange', 'ended'].forEach(ev => video.addEventListener(ev, () => { if (S.source === 'file') syncVctl() }));
 video.addEventListener('seeked', () => { if (S.running && video.paused) render() });
-video.addEventListener('ended', () => { if (S.source === 'file' && S.rec) { stopRecording(); toast('Film się skończył – pomiar zakończony automatycznie.') } });
+video.addEventListener('ended', () => { if (S.source === 'file' && S.rec) { stopRecording({ auto: true, noGesture: true }); toast('Film się skończył – pomiar zakończony automatycznie.') } });
+$('chk-autopdf').checked = S.autoPdf; $('chk-autopdf').onchange = e => { S.autoPdf = e.target.checked; saveSettings(); toast(S.autoPdf ? 'Raport PDF będzie tworzony automatycznie po zatrzymaniu pomiaru.' : 'Automatyczny raport PDF wyłączony.') };
 $('chk-mirror').onchange = () => { S.mirror = effMirror() };
 $('chk-skel').onchange = e => { S.skel = e.target.checked; if (S.running) render() }; $('chk-labels').onchange = e => { S.labels = e.target.checked; if (S.running) render() };
 $('sel-cam').onchange = () => { if (S.running && S.source === 'camera') startCamera() }; $('sel-res').onchange = () => { if (S.running && S.source === 'camera') startCamera() };
@@ -1163,4 +1201,4 @@ fillExSelects(); renderExerciseUI(); buildCards(); syncSideUI(); syncModeUI(); s
 document.querySelectorAll('#seg-mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.trackMode)); $('stage').style.touchAction = S.trackMode === 'closeup' ? 'none' : '';
 $('chk-front').checked = S.front; S.sel = EX[S.ex].metric; buildCards(); refreshHistoryUI(); updatePanels(); syncDock();
 if (qs.get('mode') === 'closeup' && S.trackMode !== 'closeup') setTrackMode('closeup', true);
-window.__rehab = S; window.__rehabApi = { updateReps, resetReps, setTrackMode, cuStartPicking, cuRestore, startRecording, stopRecording, makeReport, buildSession, compareSummary, setExercise, calibrate };
+window.__rehab = S; window.__rehabApi = { updateReps, resetReps, setTrackMode, autoReport,  cuStartPicking, cuRestore, startRecording, stopRecording, makeReport, buildSession, compareSummary, setExercise, calibrate };

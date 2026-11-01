@@ -133,7 +133,7 @@ def mobile(p, dev, orient, flow):
         fr = page.evaluate("__rehab.rec?__rehab.rec.frames.length:0"); check(f'[{tag}] pomiar zbiera próbki', fr > 15, fr)
         page.tap('#d-rec'); page.wait_for_timeout(1200)
         check(f'[{tag}] sesja zapisana w historii', page.evaluate("__rehab.hist.length") == 1)
-        page.locator('#btn-pdf').scroll_into_view_if_needed(); page.tap('#btn-pdf')
+        # po zatrzymaniu raport generuje się sam i otwiera arkusz (auto-PDF)
         try: page.wait_for_selector('#sheet:not([hidden])', timeout=60000); shown = True
         except Exception: shown = False
         check(f'[{tag}] PDF: arkusz Otwórz/Pobierz', shown)
@@ -159,7 +159,7 @@ def video(p, dev, vp=None, full_cu=False):
     page.on('console', lambda m: errs.append('console.error: ' + m.text) if m.type == 'error' and 'Failed to load resource' not in m.text else None)
     page.goto(URL, wait_until='load'); page.wait_for_timeout(1000)
     inp = page.evaluate("({acc:document.getElementById('file-video').accept,cap:document.getElementById('file-video').hasAttribute('capture'),capRec:document.getElementById('file-rec').getAttribute('capture')})")
-    check(f'[{tag}] input video/* bez capture; drugi z capture', inp['acc'] == 'video/*' and not inp['cap'] and inp['capRec'] == 'environment', inp)
+    check(f'[{tag}] input video/* bez capture; drugi z capture', inp['acc'].startswith('video/*') and not inp['cap'] and inp['capRec'] == 'environment', inp)
     with page.expect_file_chooser(timeout=5000) as fc: page.tap('#d-film')
     check(f'[{tag}] tap „Film” otwiera wybór pliku', fc.value is not None)
     # --- film z bliska w trybie „cała noga” -> brak pozy -> podpowiedź trybu zbliżenia
@@ -191,7 +191,8 @@ def video(p, dev, vp=None, full_cu=False):
         check(f'[{tag}] zbliżenie: pomiar zapisany', res and res['n'] > 10 and res['hist'] == 1, res)
     print('   wynik zbliżenia:', res)
     overflow(page, tag, '(po pomiarze)')
-    # --- zły format
+    # --- zły format (po zakończeniu filmu raport PDF otworzył się sam – zamykamy arkusz)
+    if page.evaluate("!document.getElementById('sheet').hidden"): page.tap('#sh-close')
     page.tap('#d-cam'); page.wait_for_timeout(500)
     with page.expect_file_chooser(timeout=5000) as fc3: page.tap('#d-film')
     fc3.value.set_files(BROKEN); page.wait_for_timeout(2500)
