@@ -1,5 +1,5 @@
 /* Rehabilitacja stopy – service worker (© Wojciech Wieczorek): powłoka aplikacji offline + cache bibliotek i modelu */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = `rehab-shell-${VERSION}`;
 const LIBS = 'rehab-libs-v1';
 const SHELL_FILES = [
